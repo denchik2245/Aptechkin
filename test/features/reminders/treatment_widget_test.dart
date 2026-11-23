@@ -190,22 +190,16 @@ void main() {
       await reveal(tester, find.text('Вся история'));
       await tester.tap(find.text('Вся история'));
       await tester.pumpAndSettle();
+      // A taken intake opens «Исправить отметку» (1037:19486).
       await tester.tap(find.text('Ибупрофен, 200 мг').first);
       await tester.pumpAndSettle();
-      await reveal(tester, find.text('Не принимал'));
-      await tester.tap(find.text('Не принимал'));
-      await tester.pumpAndSettle();
-      await reveal(tester, find.text('Сохранить'));
-      await tester.tap(find.text('Сохранить'));
+      expect(find.text('Исправить отметку'), findsOneWidget);
+      await reveal(tester, find.text('Отменить факт приёма'));
+      await tester.tap(find.text('Отменить факт приёма'));
       await tester.pumpAndSettle();
       expect(
-        container
-            .read(appControllerProvider)
-            .requireValue
-            .intakeRecords
-            .single
-            .status,
-        IntakeStatus.skipped,
+        container.read(appControllerProvider).requireValue.intakeRecords,
+        isEmpty,
       );
       expect(
         container

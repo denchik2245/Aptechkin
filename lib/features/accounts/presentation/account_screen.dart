@@ -1,3 +1,4 @@
+import 'package:aptechka/app/routes.dart';
 import 'package:aptechka/core/widgets/async_value_view.dart';
 import 'package:aptechka/core/utils/russian_count.dart';
 import 'package:aptechka/features/accounts/application/account_controller.dart';
@@ -144,7 +145,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                       ),
                       const SizedBox(height: 20),
                       TextButton(
-                        onPressed: () => context.go('/'),
+                        onPressed: () => context.go(AppRoutes.kits),
                         child: const Text('Продолжить без аккаунта'),
                       ),
                     ] else ...[
@@ -290,7 +291,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                                 'Открыть записи текущего профиля',
                               ),
                               trailing: const Icon(Icons.chevron_right),
-                              onTap: () => context.go('/'),
+                              onTap: () => context.go(AppRoutes.kits),
                             ),
                             const Divider(height: 1),
                             ListTile(
@@ -308,7 +309,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                                 'Экспорт и восстановление данных этого профиля',
                               ),
                               trailing: const Icon(Icons.chevron_right),
-                              onTap: () => context.go('/settings'),
+                              onTap: () => context.go(AppRoutes.settings),
                             ),
                           ],
                         ),
@@ -331,7 +332,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                                       .read(localAccountsProvider.notifier)
                                       .signOut(),
                                 );
-                                if (context.mounted) context.go('/');
+                                if (context.mounted) context.go(AppRoutes.kits);
                               },
                             ),
                             const Divider(height: 1),
@@ -365,7 +366,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                                       .read(localAccountsProvider.notifier)
                                       .deleteActiveDemo();
                                 });
-                                if (context.mounted) context.go('/');
+                                if (context.mounted) context.go(AppRoutes.kits);
                               },
                             ),
                           ],
@@ -406,7 +407,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                     ),
                     const SizedBox(height: 24),
                     OutlinedButton.icon(
-                      onPressed: () => context.push('/account/privacy'),
+                      onPressed: () => context.push(AppRoutes.accountPrivacy),
                       icon: const Icon(Icons.privacy_tip_outlined),
                       label: const Text('Как будут защищены данные'),
                     ),

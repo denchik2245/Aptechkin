@@ -1,3 +1,5 @@
+import 'package:aptechka/app/routes.dart';
+
 import 'dart:convert';
 
 import 'package:aptechka/core/widgets/design_icon.dart';
@@ -12,7 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'treatment_widgets.dart';
-import 'reminders_screen.dart';
+import 'widgets/today_widgets.dart';
 import 'intake_actions.dart';
 import 'treatment_shopping.dart';
 
@@ -31,102 +33,6 @@ List<IntakeRecord> courseRecords(AppState state, String id) {
       .map((r) => r.id)
       .toSet();
   return state.intakeRecords.where((r) => ids.contains(r.reminderId)).toList();
-}
-
-class CourseCard extends StatelessWidget {
-  const CourseCard({required this.course, required this.state, super.key});
-  final TreatmentCourse course;
-  final AppState state;
-  @override
-  Widget build(BuildContext context) {
-    final c = course;
-    final done = c.isCompletedAt(DateTime.now());
-    final reminders = TreatmentSchedule.courseReminders(state, c.id);
-    final records = courseRecords(state, c.id);
-    final taken = records.where((r) => r.status == IntakeStatus.taken).length;
-    final marked = records
-        .where((r) => r.status != IntakeStatus.deferred)
-        .length;
-    return Material(
-      color: Theme.of(context).colorScheme.surfaceContainerLowest,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: () => context.push('/treatment/course/${c.id}'),
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                c.name,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${coursePerson(c)} · ${courseDates(c)}',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 12),
-              LinearProgressIndicator(
-                value: c.durationDays == null
-                    ? 0
-                    : c.dayNumber(DateTime.now()) / c.durationDays!,
-                minHeight: 6,
-                borderRadius: BorderRadius.circular(4),
-                color: done ? Colors.green : null,
-                backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                alignment: WrapAlignment.spaceBetween,
-                spacing: 12,
-                children: [
-                  Text(
-                    done
-                        ? 'Завершён'
-                        : c.status == CourseStatus.paused
-                        ? 'На паузе'
-                        : c.durationDays == null
-                        ? 'С ${treatmentDate(c.startsAt)}'
-                        : 'День ${c.dayNumber(DateTime.now())} из ${c.durationDays}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  Text(
-                    'Принято $taken из $marked',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              for (final id in reminders.map((r) => r.medicineId).toSet()) ...[
-                Text(
-                  '${state.medicines.where((m) => m.id == id).firstOrNull?.name ?? 'Препарат'} · ${reminders.where((r) => r.medicineId == id).length} раз(а) в день',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Theme.of(context).colorScheme.onSurface,
-                  ),
-                ),
-              ],
-              if (!done && stockWarning(state, c) != null) ...[
-                const SizedBox(height: 10),
-                Text(
-                  stockWarning(state, c)!,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.tertiary,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 String? stockWarning(AppState state, TreatmentCourse c) {
@@ -324,7 +230,7 @@ class CourseDetailScreen extends ConsumerWidget {
         TreatmentSection(
           'Последние дни',
           trailing: TextButton(
-            onPressed: () => context.push('/treatment/course/$id/history'),
+            onPressed: () => context.push(AppRoutes.courseHistory(id)),
             child: const Text('Вся история'),
           ),
         ),
@@ -347,7 +253,7 @@ class CourseDetailScreen extends ConsumerWidget {
                         padding: const EdgeInsets.symmetric(vertical: 8),
                         child: InkWell(
                           onTap: () =>
-                              context.push('/treatment/course/$id/history'),
+                              context.push(AppRoutes.courseHistory(id)),
                           child: Row(
                             children: [
                               Expanded(
@@ -405,7 +311,7 @@ class CourseDetailScreen extends ConsumerWidget {
         if (!done) ...[
           const TreatmentSection('Напоминания'),
           TextButton(
-            onPressed: () => context.push('/treatment/notification/$id'),
+            onPressed: () => context.push(AppRoutes.notificationPreview(id)),
             child: const Text('Предпросмотр напоминания'),
           ),
           TreatmentSwitch(
@@ -453,7 +359,7 @@ class CourseDetailScreen extends ConsumerWidget {
           TreatmentButton(
             'Изменить курс',
             secondary: true,
-            onPressed: () => context.push('/treatment/new?edit=$id'),
+            onPressed: () => context.push(AppRoutes.treatmentEdit(id)),
           ),
           const SizedBox(height: 8),
           TreatmentButton(
@@ -498,7 +404,7 @@ class CourseDetailScreen extends ConsumerWidget {
           TreatmentButton(
             'Повторить курс',
             secondary: true,
-            onPressed: () => context.push('/treatment/new?repeat=$id'),
+            onPressed: () => context.push(AppRoutes.treatmentRepeat(id)),
           ),
           const SizedBox(height: 8),
           TreatmentButton(
@@ -516,7 +422,7 @@ class CourseDetailScreen extends ConsumerWidget {
                   context,
                   () => controller.deleteCourse(id),
                 );
-                if (context.mounted) context.go('/reminders');
+                if (context.mounted) context.go(AppRoutes.reminders);
               }
             },
           ),

@@ -19,14 +19,16 @@ void main() {
     await tester.tap(find.text('Дом'));
     await tester.pumpAndSettle();
     expect(find.text('Дом'), findsOneWidget);
-    expect(find.byTooltip('Добавить упаковку'), findsOneWidget);
+    expect(find.byTooltip('Добавить лекарство'), findsOneWidget);
 
-    expect(find.text('Ибупрофен'), findsWidgets);
-    await tester.tap(find.text('Ибупрофен').last);
-    await tester.pumpAndSettle();
+    // Figma «medicine card»: one card per physical package.
+    expect(find.text('Ибупрофен'), findsNWidgets(2));
+    expect(find.text('Требуют внимания'), findsOneWidget);
     expect(find.text('14 таблеток'), findsOneWidget);
     expect(find.text('6 таблеток'), findsOneWidget);
 
+    await tester.ensureVisible(find.text('14 таблеток'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('14 таблеток'));
     await tester.pumpAndSettle();
     expect(find.text('Где лежит'), findsOneWidget);

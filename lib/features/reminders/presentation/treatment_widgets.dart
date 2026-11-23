@@ -1,3 +1,4 @@
+import 'package:aptechka/app/routes.dart';
 import 'package:aptechka/core/widgets/design_icon.dart';
 import 'package:aptechka/core/widgets/round_icon_button.dart';
 import 'package:aptechka/core/utils/drug_text.dart';
@@ -57,7 +58,7 @@ class TreatmentPage extends StatelessWidget {
                               onBack ??
                               () => context.canPop()
                                   ? context.pop()
-                                  : context.go('/reminders'),
+                                  : context.go(AppRoutes.reminders),
                         ),
                         Expanded(
                           child: Text(

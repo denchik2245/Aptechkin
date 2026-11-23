@@ -88,19 +88,21 @@ class LocalMedicineRepository implements MedicineRepository {
   AppState _seedState() {
     final today = DateTime.now();
     final pharmacies = [
-      const Pharmacy(
+      Pharmacy(
         id: 'home',
         name: 'Дом',
         ownerLabel: 'Вы',
         isShared: false,
         canEdit: true,
+        checkedAt: today.subtract(const Duration(days: 14)),
       ),
-      const Pharmacy(
+      Pharmacy(
         id: 'mother',
         name: 'Аптечка мамы',
-        ownerLabel: 'Мама',
+        ownerLabel: 'Ольга',
         isShared: true,
         canEdit: true,
+        checkedAt: today.subtract(const Duration(days: 1)),
       ),
     ];
     final medicines = [

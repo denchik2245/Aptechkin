@@ -44,6 +44,7 @@ dependencies:
   uuid: ^4.6.0
   flutter_svg: ^2.3.2
   file_selector: ^1.1.0
+  share_plus: ^13.3.1
 
 dev_dependencies:
   flutter_test:
@@ -70,6 +71,15 @@ flutter:
     - assets/drug_catalog/mdlp_catalog.json
     - assets/drug_photos/
     - assets/icons/figma/
+    - assets/icons/figma/kit/
+    - assets/icons/figma/form/
+    - assets/icons/figma/purpose/
+    - assets/icons/figma/scan/
+    - assets/icons/figma/settings/
+    - assets/icons/figma/symptom/
+    - assets/illustrations/onboarding/
+    - assets/illustrations/filters/
+    - assets/illustrations/treatment/
   fonts:
     - family: Manrope
       fonts:

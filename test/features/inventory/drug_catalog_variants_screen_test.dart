@@ -1,3 +1,4 @@
+import 'package:aptechka/core/ui/app_toast.dart';
 import 'dart:async';
 
 import 'package:aptechka/app/app.dart';
@@ -5,14 +6,15 @@ import 'package:aptechka/app/router.dart';
 import 'package:aptechka/features/inventory/application/medicine_controller.dart';
 import 'package:aptechka/features/inventory/data/drug_catalog_service.dart';
 import 'package:aptechka/features/inventory/domain/drug_catalog_group.dart';
-import 'package:aptechka/features/inventory/presentation/drug_catalog_variants_screen.dart';
 import 'package:aptechka/features/inventory/presentation/drug_name_field.dart';
+import 'package:aptechka/features/inventory/presentation/widgets/catalog_item.dart';
 import 'package:aptechka/features/settings/domain/app_settings.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package_form_helpers.dart';
 
 const _entries = [
   DrugCatalogEntry(
@@ -78,6 +80,8 @@ class _Catalog implements DrugCatalogService {
 }
 
 void main() {
+  // Saving shows «… добавлен в «Дом» · Ещё одно» (894:18224).
+  tearDown(hideAppToast);
   final group = DrugCatalogGroup(key: 'лоперамид', entries: _entries);
 
   Future<ProviderContainer> mount(
@@ -124,76 +128,48 @@ void main() {
   }
 
   Future<void> save(WidgetTester tester) async {
-    final location = find.byKey(const ValueKey('package-location-input'));
-    await reveal(tester, location);
-    await tester.enterText(location, 'Шкаф');
-    await reveal(tester, find.text('Добавить упаковку').last);
-    await tester.tap(find.text('Добавить упаковку').last);
-    await tester.pumpAndSettle();
+    final form = PackageFormDriver(tester);
+    await form.expiryLater();
+    await form.save();
   }
 
   testWidgets(
-    'groups identical rows, hides technical codes, exposes all codes in details',
+    'identical rows are one card; technical codes stay hidden (893:17423)',
     (tester) async {
       await mount(tester);
-      expect(find.text('Лоперамид · 2 мг'), findsOneWidget);
-      expect(find.text('Дозировка'), findsNothing);
-      expect(find.textContaining('GTIN:'), findsNothing);
-      expect(find.textContaining('РУ:'), findsNothing);
-      expect(find.text('2 варианта упаковки'), findsOneWidget);
-      await reveal(tester, find.byKey(const ValueKey('catalog-details-a')));
+      expect(find.text('Лоперамид'), findsOneWidget);
+      expect(find.text('Выберите, что у вас на упаковке'), findsOneWidget);
+      expect(find.text('Все · 2'), findsOneWidget);
+      expect(find.text('Капсулы · 1'), findsOneWidget);
+      expect(find.text('Таблетки · 1'), findsOneWidget);
       expect(find.byKey(const ValueKey('catalog-entry-b')), findsNothing);
-      expect(find.text('АО Обновление · 20 капсул'), findsOneWidget);
-      expect(find.text('2 блистера по 10'), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('catalog-details-a')));
-      await tester.pumpAndSettle();
-      expect(find.text('РУ: ЛП-005975'), findsOneWidget);
-      expect(find.text('GTIN: 04603988017259'), findsOneWidget);
-      expect(find.text('GTIN: 04603988017242'), findsOneWidget);
-      await tester.tap(find.text('Закрыть'));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('GTIN:'), findsNothing);
+      expect(find.text('Капсулы · 20 шт.'), findsOneWidget);
+      expect(find.textContaining('Обновление'), findsOneWidget);
+      expect(find.textContaining('GTIN'), findsNothing);
+      expect(find.textContaining('ЛП-'), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );
 
-  testWidgets(
-    'form and manufacturer filters reset incompatible choices and search total count',
-    (tester) async {
-      await mount(tester);
-      await reveal(
-        tester,
-        find.byKey(const ValueKey('variant-manufacturer-filter')),
-      );
-      await tester.tap(
-        find.byKey(const ValueKey('variant-manufacturer-filter')),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('АО Обновление').last);
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('variant-filter-Форма-Таблетки')),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(
-        find.byKey(const ValueKey('variant-filter-Форма-Таблетки')),
-      );
-      await tester.pumpAndSettle();
-      await reveal(tester, find.byKey(const ValueKey('catalog-entry-c')));
-      expect(find.text('Запись в справочнике недействующая'), findsOneWidget);
-      expect(find.byKey(const ValueKey('catalog-entry-a')), findsNothing);
-      await tester.ensureVisible(find.text('Сбросить фильтры'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Сбросить фильтры'));
-      await tester.pumpAndSettle();
-      final input = find.byKey(const ValueKey('catalog-variant-input'));
-      await tester.enterText(input, '20 капсул');
-      await tester.pumpAndSettle();
-      await reveal(tester, find.byKey(const ValueKey('catalog-entry-a')));
-      expect(find.byKey(const ValueKey('catalog-entry-c')), findsNothing);
-      expect(tester.takeException(), isNull);
-    },
-  );
+  testWidgets('form chips filter the packages; inactive records say so', (
+    tester,
+  ) async {
+    await mount(tester);
+    final tablets = find.byKey(const ValueKey('variant-filter-Таблетки'));
+    await tester.ensureVisible(tablets);
+    await tester.pumpAndSettle();
+    await tester.tap(tablets);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('catalog-entry-a')), findsNothing);
+    expect(find.byKey(const ValueKey('catalog-entry-c')), findsOneWidget);
+    expect(find.textContaining('запись недействующая'), findsOneWidget);
+    await tester.ensureVisible(find.text('Все · 2'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Все · 2'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('catalog-entry-a')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'group selection fills full package quantity without inventing record identity',
@@ -215,8 +191,7 @@ void main() {
       expect(added.registrationId, 'ЛП-005975');
       expect(added.quantity, 20);
       expect(added.expiryDate, isNull);
-      expect(find.byTooltip('Добавить упаковку'), findsOneWidget);
-      expect(find.text('Дом'), findsOneWidget);
+      expect(find.text('Где лежит'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -251,7 +226,6 @@ void main() {
       await tester.pumpAndSettle();
       appRouter.push('/medicine/new?scanned=04603988017242');
       await tester.pumpAndSettle();
-      expect(find.text('Код упаковки считан'), findsOneWidget);
       await save(tester);
       final added = container
           .read(appControllerProvider)
@@ -290,15 +264,15 @@ void main() {
             .text,
         'Другой',
       );
-      expect(find.text('Код упаковки считан'), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );
 
   testWidgets('manual escape retains only the name', (tester) async {
     await mount(tester);
-    await reveal(tester, find.text('Заполнить вручную'));
-    await tester.tap(find.text('Заполнить вручную'));
+    final manual = find.text('Нет в справочнике? Заполнить вручную');
+    await reveal(tester, manual);
+    await tester.tap(manual);
     await tester.pumpAndSettle();
     await reveal(tester, find.byKey(const ValueKey('drug-name-input')));
     expect(
@@ -330,37 +304,19 @@ void main() {
         await tester.pumpAndSettle();
         appRouter.push('/medicine/new', extra: _entries.first);
         await tester.pumpAndSettle();
-        final quantity = find.byKey(const ValueKey('package-quantity-input'));
-        await reveal(tester, quantity);
-        expect(tester.widget<TextFormField>(quantity).controller!.text, '20');
-        if (edited) {
-          await tester.enterText(quantity, '7');
-          await tester.pumpAndSettle();
-        }
-        tester
-            .state<ScrollableState>(find.byType(Scrollable).first)
-            .position
-            .jumpTo(0);
-        await tester.pumpAndSettle();
-        final name = find.byKey(const ValueKey('drug-name-input'));
-        await reveal(tester, name);
-        await tester.enterText(name, 'Лоперами');
-        await tester.pump(const Duration(milliseconds: 300));
-        await tester.pumpAndSettle();
+        final form = PackageFormDriver(tester);
+        expect(await form.quantity(), '20 капсул');
+        if (edited) await form.minus(13);
+        await form.tap(find.text('Изменить'));
+        await form.enter('drug-name-input', 'Лоперами');
         final choice = find
             .descendant(
               of: find.byType(DrugNameField),
-              matching: find.byType(ListTile),
+              matching: find.byType(CatalogListItem),
             )
             .last;
-        await reveal(tester, choice);
-        await tester.tap(choice);
-        await tester.pumpAndSettle();
-        await reveal(tester, quantity);
-        expect(
-          tester.widget<TextFormField>(quantity).controller!.text,
-          edited ? '7' : '10',
-        );
+        await form.tap(choice);
+        expect(await form.quantity(), edited ? '7 таблеток' : '10 таблеток');
         await save(tester);
         final added = container
             .read(appControllerProvider)
@@ -387,14 +343,12 @@ void main() {
       await tester.pumpAndSettle();
       appRouter.push('/medicine/new?scanned=04603988017242');
       await tester.pumpAndSettle();
-      final quantity = find.byKey(const ValueKey('package-quantity-input'));
-      await reveal(tester, quantity);
-      await tester.enterText(quantity, '');
-      await tester.enterText(quantity, '1');
+      final form = PackageFormDriver(tester);
+      await form.plus();
+      await form.minus();
       response.complete(_entries[1]);
       await tester.pumpAndSettle();
-      await reveal(tester, quantity);
-      expect(tester.widget<TextFormField>(quantity).controller!.text, '1');
+      expect(await form.quantity(), '1 капсула');
       await save(tester);
       expect(
         container
@@ -437,9 +391,7 @@ void main() {
       ]) {
         appRouter.push('/medicine/new', extra: entry);
         await tester.pumpAndSettle();
-        final quantity = find.byKey(const ValueKey('package-quantity-input'));
-        await reveal(tester, quantity);
-        expect(tester.widget<TextFormField>(quantity).controller!.text, '1');
+        expect(await PackageFormDriver(tester).quantity(), startsWith('1 '));
         appRouter.pop();
         await tester.pumpAndSettle();
       }
@@ -455,58 +407,11 @@ void main() {
     await tester.pumpAndSettle();
     appRouter.push('/medicine/new', extra: _entries.first);
     await tester.pumpAndSettle();
-    await reveal(tester, find.byKey(const ValueKey('drug-name-input')));
-    await tester.enterText(
-      find.byKey(const ValueKey('drug-name-input')),
-      'Другой препарат',
-    );
-    await tester.pumpAndSettle();
-    final quantity = find.byKey(const ValueKey('package-quantity-input'));
-    await reveal(tester, quantity);
-    expect(tester.widget<TextFormField>(quantity).controller!.text, '1');
+    final form = PackageFormDriver(tester);
+    expect(await form.quantity(), '20 капсул');
+    await form.tap(find.text('Изменить'));
+    await form.enter('drug-name-input', 'Другой препарат');
+    expect(await form.quantity(), '1 шт.');
     expect(tester.takeException(), isNull);
   });
-
-  testWidgets(
-    'scan action opens scanner and passes returned code as scanned data',
-    (tester) async {
-      final router = GoRouter(
-        routes: [
-          GoRoute(
-            path: '/',
-            builder: (_, _) => DrugCatalogVariantsScreen(
-              groupKey: group.key,
-              initialGroup: group,
-            ),
-          ),
-          GoRoute(
-            path: '/scanner',
-            builder: (context, _) => Scaffold(
-              body: TextButton(
-                onPressed: () => context.pop('04603988017242'),
-                child: const Text('Считать код'),
-              ),
-            ),
-          ),
-          GoRoute(
-            path: '/medicine/new',
-            builder: (_, state) => Scaffold(
-              body: Text('Считан: ${state.uri.queryParameters['scanned']}'),
-            ),
-          ),
-        ],
-      );
-      addTearDown(router.dispose);
-      await tester.pumpWidget(
-        ProviderScope(child: MaterialApp.router(routerConfig: router)),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Сканировать код упаковки'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Считать код'));
-      await tester.pumpAndSettle();
-      expect(find.text('Считан: 04603988017242'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    },
-  );
 }

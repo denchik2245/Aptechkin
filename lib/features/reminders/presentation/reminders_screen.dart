@@ -1,20 +1,35 @@
+import 'dart:math' as math;
+
+import 'package:aptechka/app/routes.dart';
+import 'package:aptechka/core/design/design.dart';
+import 'package:aptechka/core/ui/app_button.dart';
+import 'package:aptechka/core/ui/app_segmented.dart';
+import 'package:aptechka/core/ui/app_sheet.dart';
+import 'package:aptechka/core/ui/radio_card.dart';
+import 'package:aptechka/core/ui/state_card.dart';
+import 'package:aptechka/core/ui/status_banner.dart';
 import 'package:aptechka/core/widgets/async_value_view.dart';
 import 'package:aptechka/core/widgets/design_icon.dart';
 import 'package:aptechka/core/widgets/round_icon_button.dart';
 import 'package:aptechka/features/inventory/application/medicine_controller.dart';
 import 'package:aptechka/features/inventory/domain/app_state.dart';
-import 'package:aptechka/features/reminders/domain/medication_reminder.dart';
+import 'package:aptechka/features/reminders/domain/intake_marks.dart';
+import 'package:aptechka/features/reminders/domain/course_list.dart';
 import 'package:aptechka/features/reminders/domain/treatment_course.dart';
 import 'package:aptechka/features/reminders/domain/treatment_schedule.dart';
+import 'package:aptechka/features/reminders/domain/treatment_today.dart';
+import 'package:aptechka/features/reminders/presentation/widgets/course_card.dart';
+import 'package:aptechka/features/reminders/presentation/widgets/today_widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'treatment_widgets.dart';
 import 'intake_actions.dart';
-import 'course_detail_screen.dart';
 import 'treatment_shopping.dart';
 
+/// «Лечение». The «Сегодня» tab is «1 · Сегодня» (1186:21990); «Курсы» and
+/// the empty state are not ported yet.
 class RemindersScreen extends ConsumerStatefulWidget {
   const RemindersScreen({super.key});
   @override
@@ -22,11 +37,43 @@ class RemindersScreen extends ConsumerStatefulWidget {
 }
 
 class _RemindersScreenState extends ConsumerState<RemindersScreen> {
-  bool courses = false, allCompleted = false;
-  String person = 'Все';
+  bool courses = false, showCompleted = false;
+
+  /// The last action on «Сегодня» and its message (1037:19575 …).
+  IntakeOutcome? outcome;
+
+  Future<void> _run(Future<IntakeOutcome?> action) async {
+    final result = await action;
+    if (result != null && mounted) setState(() => outcome = result);
+  }
+
+  String person = everyone;
   DateTime date = treatmentDay(DateTime.now());
+
+  Future<void> _pickPerson(AppState state) async {
+    final chosen = await showAppSheet<String>(
+      context: context,
+      title: 'Выбор человека',
+      builder: (sheetContext) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final (i, value) in treatmentPeople(state).indexed) ...[
+            if (i > 0) const SizedBox(height: 8),
+            RadioCard(
+              title: value,
+              selected: value == person,
+              onTap: () => Navigator.pop(sheetContext, value),
+            ),
+          ],
+        ],
+      ),
+    );
+    if (chosen != null && mounted) setState(() => person = chosen);
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
+    backgroundColor: context.palette.background,
     body: DefaultTextStyle.merge(
       style: TextStyle(
         color: Theme.of(context).colorScheme.onSurface,
@@ -37,606 +84,473 @@ class _RemindersScreenState extends ConsumerState<RemindersScreen> {
         bottom: false,
         child: AsyncValueView(
           value: ref.watch(appControllerProvider),
-          data: (state) => Align(
-            alignment: Alignment.topCenter,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 600),
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 20, 16, 124),
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
+          data: (state) {
+            // A person whose courses are gone falls back to «Все».
+            if (!treatmentPeople(state).contains(person)) person = everyone;
+            return Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: AppSpacing.maxContentWidth,
+                ),
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 132),
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: PersonSwitcher(
+                              person: person,
+                              onTap: () => _pickPerson(state),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        RoundIconButton(
+                          tooltip: 'Добавить курс',
+                          primary: true,
+                          icon: const DesignIcon('add-24', size: 24),
+                          onPressed: () => context.push(AppRoutes.treatmentNew),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    AppSegmented(
+                      labels: const ['Сегодня', 'Курсы'],
+                      selected: courses ? 1 : 0,
+                      onChanged: (index) =>
+                          setState(() => courses = index == 1),
+                    ),
+                    const SizedBox(height: 16),
+                    // «Курсы / Первый вход» (1113:27415): nothing yet.
+                    if (state.courses.isEmpty && state.reminders.isEmpty)
+                      _empty()
+                    else if (courses)
+                      ..._courseList(state)
+                    else
+                      ..._today(state),
+                    if (state.treatmentShoppingIds.isNotEmpty)
+                      TextButton(
+                        onPressed: () =>
+                            showTreatmentShopping(context, ref, const []),
                         child: Text(
-                          'Лечение',
-                          style: Theme.of(context).textTheme.headlineMedium,
+                          'Список покупок · ${state.treatmentShoppingIds.length}',
                         ),
                       ),
-                      RoundIconButton(
-                        tooltip: 'Добавить курс',
-                        primary: true,
-                        icon: const DesignIcon('add'),
-                        onPressed: () => context.push('/treatment/new'),
+                    if (!state.settings.expiryAlerts &&
+                        !state.settings.stockAlerts)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 24),
+                        child: Text('Предупреждения выключены'),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  if (state.courses.isEmpty && state.reminders.isEmpty) ...[
-                    const SizedBox(height: 32),
-                    _empty(),
-                  ] else ...[
-                    Container(
-                      padding: const EdgeInsets.all(3),
-                      decoration: BoxDecoration(
-                        color: secondaryFill(context),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        children: [
-                          for (final (value, label) in [
-                            (false, 'Сегодня'),
-                            (true, 'Курсы'),
-                          ])
-                            Expanded(
-                              child: Material(
-                                color: courses == value
-                                    ? Theme.of(context)
-                                          .colorScheme
-                                          .surfaceContainerLowest
-                                    : Colors.transparent,
-                                borderRadius: BorderRadius.circular(10),
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(10),
-                                  onTap: () => setState(() => courses = value),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 8,
-                                    ),
-                                    child: Text(
-                                      label,
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w700,
-                                        color: courses == value
-                                            ? Theme.of(context)
-                                                  .colorScheme
-                                                  .onSurface
-                                            : Theme.of(context)
-                                                  .colorScheme
-                                                  .onSurfaceVariant,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    TreatmentChips(
-                      values: {
-                        'Все',
-                        'Я',
-                        ...state.courses.map((c) => c.person),
-                      }.toList(),
-                      selected: {person},
-                      onSelected: (p) => setState(() => person = p),
-                      horizontal: true,
-                    ),
-                    const SizedBox(height: 16),
-                    if (courses) ..._courseList(state) else ..._today(state),
                   ],
-                  if (state.treatmentShoppingIds.isNotEmpty)
-                    TextButton(
-                      onPressed: () =>
-                          showTreatmentShopping(context, ref, const []),
-                      child: Text(
-                        'Список покупок · ${state.treatmentShoppingIds.length}',
-                      ),
-                    ),
-                  if (!state.settings.expiryAlerts &&
-                      !state.settings.stockAlerts)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 24),
-                      child: Text('Предупреждения выключены'),
-                    ),
-                ],
+                ),
               ),
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
-
-  Widget _empty() => TreatmentCard(
-    child: Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        children: [
-          Container(
-            width: 200,
-            height: 200,
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary
-                  .withValues(alpha: .08),
-              border: Border.all(
-                color: Theme.of(context).colorScheme.primary
-                    .withValues(alpha: .5),
-              ),
-              borderRadius: BorderRadius.circular(24),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.image_outlined, size: 24),
-                const SizedBox(height: 12),
-                Text(
-                  'Иллюстрация',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.primary,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Маскот с таблетницей и будильником',
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-          Text(
-            'Добавьте первый курс',
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'Напомним, что, сколько и когда принять, сохраним отметки о приёме и посчитаем, хватит ли лекарства до конца курса',
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 20),
-          TreatmentButton(
-            'Добавить курс',
-            onPressed: () => context.push('/treatment/new'),
-          ),
-        ],
-      ),
-    ),
-  );
-
-  List<Widget> _courseList(AppState state) {
-    final filtered = state.courses
-        .where((c) => person == 'Все' || c.person == person)
-        .toList();
-    final active = filtered
-        .where((c) => !c.isCompletedAt(DateTime.now()))
-        .toList();
-    final completed = filtered
-        .where((c) => c.isCompletedAt(DateTime.now()))
-        .toList();
-    return [
-      Text(
-        'Активные · ${active.length}',
-        style: Theme.of(context).textTheme.titleSmall,
-      ),
-      const SizedBox(height: 16),
-      ...active.map(
-        (c) => Padding(
-          padding: const EdgeInsets.only(bottom: 16),
-          child: CourseCard(course: c, state: state),
-        ),
-      ),
-      if (filtered.isEmpty) _empty(),
-      if (completed.isNotEmpty) ...[
-        const TreatmentSection('Завершённые'),
-        ...(allCompleted ? completed : completed.take(1)).map(
-          (c) => Padding(
-            padding: const EdgeInsets.only(bottom: 16),
-            child: CourseCard(course: c, state: state),
-          ),
-        ),
-        if (completed.length > 1)
-          TextButton(
-            onPressed: () => setState(() => allCompleted = !allCompleted),
-            child: Text(
-              allCompleted ? 'Скрыть завершённые' : 'Показать все завершённые',
-            ),
-          ),
-      ],
-    ];
-  }
-
-  List<Widget> _today(AppState state) {
-    final slots = TreatmentSchedule.forDay(
-      state,
-      date,
-      person: person == 'Все' ? null : person,
-    );
-    final now = DateTime.now();
-    final marked = slots.where((s) => s.marked).length;
-    final current = slots
-        .where((s) => !s.marked && !s.dueAt.isAfter(now))
-        .lastOrNull;
-    final monday = date.subtract(Duration(days: date.weekday - 1));
-    final future = treatmentDay(now).isBefore(date);
-    return [
-      Semantics(
-        label: 'Неделя. Смахните влево или вправо для смены недели',
-        onIncrease: () => setState(
-          () => date = DateTime(date.year, date.month, date.day + 7),
-        ),
-        onDecrease: () => setState(
-          () => date = DateTime(date.year, date.month, date.day - 7),
-        ),
-        child: GestureDetector(
-          onHorizontalDragEnd: (details) {
-            if ((details.primaryVelocity ?? 0).abs() > 100) {
-              setState(
-                () => date = DateTime(
-                  date.year,
-                  date.month,
-                  date.day + ((details.primaryVelocity ?? 0) < 0 ? 7 : -7),
-                ),
-              );
-            }
+            );
           },
-          child: Row(
-            children: List.generate(7, (i) {
-              final day = DateTime(monday.year, monday.month, monday.day + i);
-              final selected = day == date;
-              final ds = TreatmentSchedule.forDay(
-                state,
-                day,
-                person: person == 'Все' ? null : person,
-              );
-              final done = ds.where((s) => s.marked).length;
-              final skipped = ds.any(
-                (s) => s.record?.status == IntakeStatus.skipped,
-              );
-              return Expanded(
-                child: Semantics(
-                  selected: selected,
-                  child: InkWell(
-                    onTap: () => setState(() => date = day),
-                    borderRadius: BorderRadius.circular(14),
-                    child: Container(
-                      constraints: const BoxConstraints(minHeight: 68),
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      margin: const EdgeInsets.symmetric(horizontal: 3),
-                      decoration: BoxDecoration(
-                        color: selected
-                            ? Theme.of(context).colorScheme.primary
-                            : null,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            const ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'][i],
-                            maxLines: 1,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: selected
-                                  ? Colors.white
-                                  : Theme.of(context)
-                                        .colorScheme
-                                        .onSurfaceVariant,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '${day.day}',
-                            maxLines: 1,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: selected
-                                  ? Colors.white
-                                  : Theme.of(context).colorScheme.onSurface,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          if (selected || done > 0)
-                            DesignIcon(
-                              'treatment-day-${selected
-                                  ? 'selected'
-                                  : skipped || done < ds.length
-                                  ? 'partial'
-                                  : 'done'}',
-                              size: 6,
-                            )
-                          else
-                            const SizedBox(width: 6, height: 6),
-                        ],
-                      ),
-                    ),
+        ),
+      ),
+    ),
+  );
+
+  /// «Добавьте первый курс» (1113:27538).
+  Widget _empty() => StateCard(
+    image: const FirstCourseImage(),
+    title: 'Добавьте первый курс',
+    text:
+        'Сохраните схему приёма и настройте напоминания. Лекарства можно '
+        'выбрать из аптечки.',
+    actions: [
+      StateCardAction(
+        'Добавить курс',
+        () => context.push(AppRoutes.treatmentNew),
+      ),
+    ],
+  );
+
+  /// «3 · Список курсов» (1186:21992): «Текущие» or «Завершённые», grouped
+  /// by person for «Все».
+  List<Widget> _courseList(AppState state) {
+    final palette = context.palette;
+    final now = DateTime.now();
+    final list = courseList(
+      state,
+      now,
+      person: person,
+      completed: showCompleted,
+    );
+    void addCourse() => context.push(AppRoutes.treatmentNew);
+    final Widget body;
+    if (!list.isEmpty) {
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final (i, group) in list.groups.indexed) ...[
+            if (i > 0) const SizedBox(height: 20),
+            if (group.title.isNotEmpty) ...[
+              Semantics(
+                header: true,
+                child: Text(
+                  group.title,
+                  style: AppTypography.bodyMedium.copyWith(
+                    color: palette.textSecondary,
                   ),
                 ),
-              );
-            }),
-          ),
-        ),
-      ),
-      const SizedBox(height: 16),
-      if (!state.settings.intakeSchedule)
-        TreatmentBanner(
-          'Расписание на паузе',
-          'История приёма сохранена',
-          action: 'Настроить расписание',
-          onAction: () => context.go('/settings'),
-        ),
-      if (slots.isNotEmpty && marked == slots.length) ...[
-        TreatmentBanner(
-          'Все приёмы на ${date == treatmentDay(now) ? 'сегодня' : 'этот день'} отмечены',
-          'Отметки сохранены в истории курсов',
-          success: true,
-        ),
-        const SizedBox(height: 16),
-      ],
-      Wrap(
-        alignment: WrapAlignment.spaceBetween,
-        spacing: 12,
-        runSpacing: 4,
-        children: [
-          InkWell(
-            onTap: () async {
-              final chosen = await showDatePicker(
-                context: context,
-                initialDate: date,
-                firstDate: DateTime(2020),
-                lastDate: DateTime(now.year + 10),
-              );
-              if (chosen != null && mounted) {
-                setState(() => date = chosen);
-              }
-            },
-            child: Text(
-              '${date == treatmentDay(now) ? 'Сегодня, ' : ''}${treatmentDate(date)}',
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
-          ),
-          Text(
-            '$marked из ${slots.length} приёмов',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-        ],
-      ),
-      if (slots.isEmpty && state.settings.intakeSchedule)
-        Padding(
-          padding: const EdgeInsets.only(top: 24),
-          child: TreatmentCard(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                children: [
-                  const Text('На этот день приёмов нет'),
-                  const SizedBox(height: 12),
-                  TreatmentButton(
-                    'Добавить курс',
-                    onPressed: () => context.push('/treatment/new'),
-                  ),
-                ],
               ),
-            ),
-          ),
-        ),
-      for (final (label, start, end) in [
-        ('Утро', 0, 12),
-        ('День', 12, 18),
-        ('Вечер', 18, 24),
-      ])
-        if (slots.any(
-          (s) => s.reminder.hour >= start && s.reminder.hour < end,
-        )) ...[
-          TreatmentSection(label),
-          for (final s in slots.where(
-            (s) => s.reminder.hour >= start && s.reminder.hour < end,
-          ))
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: s == current && !future
-                  ? _nowCard(s)
-                  : IntakeRow(
-                      intake: s,
-                      onTap: future
-                          ? null
-                          : () => showIntakeAction(context, ref, s),
-                    ),
-            ),
+              const SizedBox(height: 8),
+            ],
+            for (final (j, course) in group.courses.indexed) ...[
+              if (j > 0) const SizedBox(height: 12),
+              CourseCard(
+                info: courseCardInfo(state, course, now),
+                onTap: () => context.push(AppRoutes.course(course.id)),
+              ),
+            ],
+          ],
         ],
-    ];
-  }
-
-  Widget _nowCard(TreatmentIntake s) => Container(
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      color: Theme.of(context).colorScheme.surfaceContainerLowest,
-      border: Border.all(
-        color: Theme.of(context).colorScheme.primary,
-        width: 2,
-      ),
-      borderRadius: BorderRadius.circular(24),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primary.withValues(alpha: .1),
-            borderRadius: BorderRadius.circular(100),
+      );
+    } else if (showCompleted) {
+      final empty = completedEmpty(person);
+      body = StateCard(
+        title: empty.title,
+        text: empty.text,
+        actions: [
+          StateCardAction(
+            'К текущим курсам',
+            () => setState(() => showCompleted = false),
+            primary: false,
           ),
-          child: Text(
-            '${s.record?.status == IntakeStatus.deferred ? 'Отложено до' : 'Сейчас ·'} ${timeText(s.dueAt)}',
-            style: TextStyle(
-              fontSize: 12,
-              color: Theme.of(context).colorScheme.primary,
-            ),
+        ],
+      );
+    } else if (list.completed == 0 && person != everyone) {
+      final empty = personEmpty(person);
+      body = StateCard(
+        title: empty.title,
+        text: empty.text,
+        actions: [
+          StateCardAction('Добавить курс', addCourse),
+          StateCardAction(
+            'Показать всех',
+            () => setState(() => person = everyone),
+            primary: false,
           ),
-        ),
-        const SizedBox(height: 14),
-        Row(
+        ],
+      );
+    } else {
+      body = StateCard(
+        title: 'Текущих курсов нет',
+        text:
+            'Завершённые курсы сохранены в истории. При необходимости можно '
+            'добавить новый курс.',
+        actions: [
+          StateCardAction('Добавить курс', addCourse),
+          StateCardAction(
+            'Завершённые · ${list.completed}',
+            () => setState(() => showCompleted = true),
+            primary: false,
+          ),
+        ],
+      );
+    }
+    return [
+      SizedBox(
+        height: 44,
+        child: Row(
           children: [
-            TreatmentDrugIcon(s.medicine, large: true),
-            const SizedBox(width: 12),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    medicineTitle(s.medicine),
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurface,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  Text(
-                    '${s.reminder.dose}${s.reminder.condition.isEmpty ? '' : ' · ${s.reminder.condition}'}',
-                  ),
-                  if (s.reminder.hint.isNotEmpty)
-                    Text(
-                      s.reminder.hint,
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                ],
+              child: Text(
+                showCompleted
+                    ? 'Завершённые · ${list.completed}'
+                    : 'Текущие · ${list.current}',
+                style: AppTypography.bodyMedium.copyWith(
+                  color: palette.textSecondary,
+                ),
               ),
+            ),
+            AppLinkButton(
+              label: showCompleted
+                  ? '‹ Текущие'
+                  : 'Завершённые · ${list.completed} ›',
+              small: true,
+              onPressed: () => setState(() => showCompleted = !showCompleted),
             ),
           ],
         ),
-        const SizedBox(height: 14),
-        TreatmentButton(
-          'Принял',
-          onPressed: () => treatmentAction(
-            context,
-            () => ref
-                .read(appControllerProvider.notifier)
-                .recordIntake(
-                  s.reminder.id,
-                  IntakeStatus.taken,
-                  scheduledDate: s.date,
-                ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final defer = TreatmentButton(
-              'Отложить',
-              secondary: true,
-              onPressed: () => showIntakeAction(context, ref, s, mode: 'defer'),
-            );
-            final skip = TreatmentButton(
-              'Пропустить',
-              secondary: true,
-              onPressed: () => showIntakeAction(context, ref, s, mode: 'skip'),
-            );
-            if (constraints.maxWidth < 300 ||
-                MediaQuery.textScalerOf(context).scale(16) > 19) {
-              return Column(children: [defer, const SizedBox(height: 8), skip]);
-            }
-            return Row(
-              children: [
-                Expanded(child: defer),
-                const SizedBox(width: 8),
-                Expanded(child: skip),
-              ],
-            );
-          },
-        ),
-      ],
-    ),
-  );
-}
+      ),
+      const SizedBox(height: 20),
+      body,
+    ];
+  }
 
-class IntakeRow extends StatelessWidget {
-  const IntakeRow({
-    required this.intake,
-    this.onTap,
-    this.history = false,
-    super.key,
-  });
-  final TreatmentIntake intake;
-  final VoidCallback? onTap;
-  final bool history;
-  @override
-  Widget build(BuildContext context) {
-    final s = intake;
-    final r = s.record;
-    final taken = r?.status == IntakeStatus.taken;
-    final status = r == null
-        ? (!s.plannedAt.isAfter(DateTime.now())
-              ? 'Не отмечено · ${s.reminder.timeLabel}'
-              : s.reminder.timeLabel)
-        : switch (r.status) {
-            IntakeStatus.taken => 'Принято в ${timeText(r.occurredAt)}',
-            IntakeStatus.skipped =>
-              'Пропущено${r.reason.isEmpty ? '' : ': ${r.reason}'}',
-            IntakeStatus.deferred =>
-              'Отложено до ${timeText(r.deferredUntil!)}',
-          };
-    return Material(
-      color: Theme.of(context).colorScheme.surfaceContainerLowest,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+  /// «Сегодня» (1068:21774): week, summary, Утро / День / Вечер.
+  List<Widget> _today(AppState state) {
+    final palette = context.palette;
+    final now = DateTime.now();
+    final today = treatmentDay(now);
+    final filter = person == everyone ? null : person;
+    final slots = TreatmentSchedule.forDay(state, date, person: filter);
+    final current = currentIntake(slots, date, now);
+    final future = today.isBefore(date);
+    final monday = date.subtract(Duration(days: date.weekday - 1));
+    void shiftWeek(int days) =>
+        setState(() => date = DateTime(date.year, date.month, date.day + days));
+    return [
+      Semantics(
+        label: 'Неделя. Смахните влево или вправо для смены недели',
+        onIncrease: () => shiftWeek(7),
+        onDecrease: () => shiftWeek(-7),
+        child: GestureDetector(
+          onHorizontalDragEnd: (details) {
+            final velocity = details.primaryVelocity ?? 0;
+            if (velocity.abs() > 100) shiftWeek(velocity < 0 ? 7 : -7);
+          },
           child: Row(
             children: [
-              TreatmentDrugIcon(s.medicine),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      medicineTitle(s.medicine),
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurface,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${history ? '${s.reminder.timeLabel} · ' : ''}${s.reminder.dose}${s.reminder.condition.isEmpty ? '' : ' · ${s.reminder.condition}'}',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      status,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: taken
-                            ? const Color(0xFF00BC00)
-                            : r != null
-                            ? Theme.of(context).colorScheme.tertiary
-                            : Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
+              for (var i = 0; i < 7; i++)
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final day = DateTime(
+                        monday.year,
+                        monday.month,
+                        monday.day + i,
+                      );
+                      return Center(
+                        child: SizedBox(
+                          width: math.min(44, constraints.maxWidth),
+                          child: DayCell(
+                            weekday: weekdayShortLabels[i],
+                            day: day.day,
+                            selected: day == date,
+                            future: day.isAfter(today),
+                            mark: dayMark(
+                              TreatmentSchedule.forDay(
+                                state,
+                                day,
+                                person: filter,
+                              ),
+                            ),
+                            onTap: () => setState(() => date = day),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              DesignIcon(
-                taken ? 'treatment-okay-18' : 'treatment-check',
-                size: taken ? 18 : 24,
-              ),
             ],
           ),
         ),
       ),
+      const SizedBox(height: 16),
+      if (!state.settings.intakeSchedule) ...[
+        TreatmentBanner(
+          'Расписание на паузе',
+          'История приёма сохранена',
+          action: 'Настроить расписание',
+          onAction: () => context.push(AppRoutes.settingsNotifications),
+        ),
+        const SizedBox(height: 16),
+      ],
+      if (slots.isNotEmpty && slots.every((s) => s.marked)) ...[
+        TreatmentDoneCard(
+          title:
+              'Все приёмы на ${date == today ? 'сегодня' : 'этот день'} '
+              'отмечены',
+          text: date == today
+              ? nextIntakeLabel(
+                  nextIntakeAfter(state, date, person: filter),
+                  now,
+                )
+              : null,
+        ),
+        const SizedBox(height: 16),
+      ],
+      Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Row(
+          children: [
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: InkWell(
+                  onTap: () async {
+                    final chosen = await showDatePicker(
+                      context: context,
+                      initialDate: date,
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime(now.year + 10),
+                    );
+                    if (chosen != null && mounted) {
+                      setState(() => date = treatmentDay(chosen));
+                    }
+                  },
+                  child: Text(
+                    scheduleDateLabel(date, now),
+                    style: AppTypography.bodyLarge.copyWith(
+                      color: palette.textPrimary,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              takenSummary(slots),
+              style: AppTypography.bodySmall.copyWith(
+                color: palette.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+      ..._message(slots),
+      for (final part in DayPart.values) ...[
+        const SizedBox(height: 16),
+        _part(
+          part,
+          [
+            for (final s in slots)
+              if (DayPart.of(s.reminder.hour) == part) s,
+          ],
+          current: current,
+          future: future,
+        ),
+      ],
+    ];
+  }
+
+  /// The message of the last action, with its button and link
+  /// (1185:27294, 1185:26806, 1185:26629, 1185:26983).
+  List<Widget> _message(List<TreatmentIntake> slots) {
+    final o = outcome;
+    if (o == null || o.day != date) return const [];
+    final s = slots.where((x) => x.reminder.id == o.reminderId).firstOrNull;
+    if (s == null) return const [];
+    final (title, text) = outcomeMessage(o, s);
+    final course = s.course;
+    Widget link(String label, VoidCallback onTap) => Align(
+      alignment: Alignment.centerLeft,
+      child: AppLinkButton(label: label, small: true, onPressed: onTap),
+    );
+    final undoable =
+        o.kind == IntakeOutcomeKind.taken ||
+        o.kind == IntakeOutcomeKind.skipped;
+    return [
+      const SizedBox(height: 16),
+      StatusBanner(
+        tone: o.kind == IntakeOutcomeKind.taken
+            ? StatusBannerTone.ok
+            : StatusBannerTone.info,
+        title: title,
+        text: text,
+        actionLabel: undoable ? 'Отменить' : null,
+        onAction: undoable ? () => _run(undoMark(context, ref, s)) : null,
+      ),
+      switch (o.kind) {
+        IntakeOutcomeKind.deferred => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 16),
+            AppButton(
+              label: 'Уже принял',
+              onPressed: () => _run(markTaken(context, ref, s)),
+            ),
+            const SizedBox(height: 4),
+            link(
+              'Изменить время напоминания',
+              () => _run(showDeferSheet(context, ref, s)),
+            ),
+          ],
+        ),
+        IntakeOutcomeKind.skipped => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 16),
+            AppButton.secondary(
+              label: 'Добавить причину',
+              onPressed: () => showReasonSheet(context, ref, s),
+            ),
+            if (course != null) ...[
+              const SizedBox(height: 4),
+              link(
+                'Врач изменил назначение?',
+                () => context.push(AppRoutes.treatmentEdit(course.id)),
+              ),
+            ],
+          ],
+        ),
+        IntakeOutcomeKind.taken || IntakeOutcomeKind.undone =>
+          course == null
+              ? const SizedBox.shrink()
+              : Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: link(
+                    o.kind == IntakeOutcomeKind.taken
+                        ? 'Открыть историю'
+                        : 'Посмотреть изменения в истории',
+                    () => context.push(AppRoutes.courseHistory(course.id)),
+                  ),
+                ),
+      },
+    ];
+  }
+
+  /// «Утро» (1068:21802): Body/Medium header, then intakes 12 pt apart or
+  /// «Нет запланированных приёмов».
+  Widget _part(
+    DayPart part,
+    List<TreatmentIntake> slots, {
+    required TreatmentIntake? current,
+    required bool future,
+  }) {
+    final palette = context.palette;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Semantics(
+            header: true,
+            child: Text(
+              part.label,
+              style: AppTypography.bodyMedium.copyWith(
+                color: palette.textSecondary,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (slots.isEmpty)
+            Text(
+              'Нет запланированных приёмов',
+              style: AppTypography.bodySmall.copyWith(
+                color: palette.textSecondary,
+              ),
+            ),
+          for (final (i, s) in slots.indexed) ...[
+            if (i > 0) const SizedBox(height: 12),
+            PlannedIntake(
+              time: timeText(s.plannedAt),
+              child: s == current
+                  ? IntakeNowCard(
+                      intake: s,
+                      onTaken: () => _run(markTaken(context, ref, s)),
+                      onDefer: () => _run(showDeferSheet(context, ref, s)),
+                      onSkip: () => _run(showSkipSheet(context, ref, s)),
+                    )
+                  : IntakeRow(
+                      intake: s,
+                      onTap: future
+                          ? null
+                          : () => _run(showIntakeAction(context, ref, s)),
+                    ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
+
+const weekdayShortLabels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];

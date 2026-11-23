@@ -27,6 +27,11 @@ class AppState {
   final AppSettings settings;
   final String profileScopeId;
 
+  /// Null only when the user has deleted every kit.
+  Pharmacy? get selectedPharmacyOrNull =>
+      pharmacies.where((item) => item.id == selectedPharmacyId).firstOrNull ??
+      pharmacies.firstOrNull;
+
   Pharmacy get selectedPharmacy => pharmacies.firstWhere(
     (pharmacy) => pharmacy.id == selectedPharmacyId,
     orElse: () => pharmacies.first,
@@ -71,7 +76,7 @@ class AppState {
 
   factory AppState.fromJson(Map<String, Object?> json) {
     final rawPharmacies = json['pharmacies'] as List<Object?>?;
-    final pharmacies = rawPharmacies == null || rawPharmacies.isEmpty
+    final pharmacies = rawPharmacies == null
         ? const [
             Pharmacy(
               id: 'home',
@@ -105,7 +110,7 @@ class AppState {
       pharmacies: pharmacies,
       selectedPharmacyId: pharmacies.any((item) => item.id == selected)
           ? selected!
-          : pharmacies.first.id,
+          : pharmacies.firstOrNull?.id ?? '',
       medicines: (json['medicines'] as List<Object?>? ?? const [])
           .map(
             (item) =>

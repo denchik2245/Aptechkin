@@ -1,3 +1,5 @@
+import 'package:aptechka/app/routes.dart';
+import 'package:aptechka/core/design/design.dart';
 import 'package:aptechka/core/widgets/design_icon.dart';
 import 'package:aptechka/core/widgets/glass_surface.dart';
 import 'package:flutter/material.dart';
@@ -21,7 +23,7 @@ class AppShell extends StatelessWidget {
       bottomNavigationBar: AppNavigationBar(
         selectedIndex: selected,
         onSelect: select,
-        onSearch: () => context.push('/search'),
+        onSearch: () => context.push(AppRoutes.search),
       ),
     );
   }
@@ -33,17 +35,22 @@ class AppNavigationBar extends StatelessWidget {
     required this.selectedIndex,
     this.onSelect,
     this.onSearch,
+    this.searchSelected = false,
     super.key,
   });
+
+  /// -1 when no tab is selected (the search is open).
   final int selectedIndex;
   final ValueChanged<int>? onSelect;
   final VoidCallback? onSearch;
 
+  /// «tab bar» active=Поиск (824:4908): grey selection, blue icon.
+  final bool searchSelected;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final dark = theme.brightness == Brightness.dark;
-    final primary = theme.colorScheme.primary;
+    final primary = context.palette.tabActive;
     final foreground = theme.colorScheme.onSurface;
     void select(int index) {
       if (onSelect != null) {
@@ -85,10 +92,7 @@ class AppNavigationBar extends StatelessWidget {
                                 message: label,
                                 child: Material(
                                   color: index == selectedIndex
-                                      ? (dark
-                                            ? const Color(0xFF393A49)
-                                            : const Color(0xFFDADCE4)
-                                                  .withValues(alpha: 0.9))
+                                      ? context.palette.tabSelection
                                       : Colors.transparent,
                                   shape: const StadiumBorder(),
                                   child: InkWell(
@@ -141,14 +145,30 @@ class AppNavigationBar extends StatelessWidget {
                 child: SizedBox(
                   width: 62,
                   height: 62,
-                  child: IconButton(
-                    padding: const EdgeInsets.all(4),
-                    onPressed: onSearch ?? () => context.push('/search'),
-                    tooltip: 'Поиск',
-                    icon: DesignIcon(
-                      'search-control',
-                      size: 54,
-                      color: foreground,
+                  child: Semantics(
+                    selected: searchSelected,
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: IconButton(
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 54,
+                          height: 54,
+                        ),
+                        onPressed:
+                            onSearch ?? () => context.push(AppRoutes.search),
+                        tooltip: 'Поиск',
+                        style: searchSelected
+                            ? IconButton.styleFrom(
+                                backgroundColor: context.palette.tabSelection,
+                              )
+                            : null,
+                        icon: DesignIcon(
+                          'search-control',
+                          size: 54,
+                          color: searchSelected ? primary : foreground,
+                        ),
+                      ),
                     ),
                   ),
                 ),

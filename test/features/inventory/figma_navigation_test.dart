@@ -1,7 +1,7 @@
 import 'package:aptechka/app/app.dart';
 import 'package:aptechka/app/router.dart';
 import 'package:aptechka/features/inventory/application/medicine_controller.dart';
-import 'package:aptechka/features/inventory/presentation/widgets/medicine_list_card.dart';
+import 'package:aptechka/features/inventory/presentation/widgets/package_card.dart';
 import 'package:aptechka/features/reminders/domain/medication_reminder.dart';
 import 'package:aptechka/features/settings/domain/backup_codec.dart';
 import 'package:aptechka/features/shell/presentation/app_shell.dart';
@@ -37,26 +37,26 @@ void main() {
       expect(appRouter.routeInformationProvider.value.uri.path, '/settings');
       await tester.tap(find.byTooltip('Поиск'));
       await tester.pumpAndSettle();
-      expect(find.text('Поиск по вашим аптечкам'), findsOneWidget);
+      expect(find.text('Лекарство во всех аптечках'), findsOneWidget);
       await tester.enterText(find.byType(TextField), 'Лоратадин');
       await tester.pumpAndSettle();
       expect(
-        find.widgetWithText(MedicineListCard, 'Лоратадин'),
+        find.widgetWithText(PackageCard, 'Лоратадин'),
         findsNWidgets(2),
       );
       expect(find.text('Ибупрофен'), findsNothing);
       await tester.tap(
-        find.widgetWithText(MedicineListCard, 'Лоратадин').first,
+        find.widgetWithText(PackageCard, 'Лоратадин').first,
       );
       await tester.pumpAndSettle();
       expect(find.text('Где лежит'), findsOneWidget);
       await tester.scrollUntilVisible(
-        find.text('Как применять'),
+        find.text('Характеристики'),
         150,
         scrollable: find.byType(Scrollable).last,
       );
       await tester.pumpAndSettle();
-      expect(find.text('Как применять'), findsOneWidget);
+      expect(find.text('Характеристики'), findsOneWidget);
       expect(
         find.descendant(
           of: find.byType(AppNavigationBar),
@@ -82,8 +82,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byTooltip('Увеличить остаток'));
-    await tester.tap(find.byTooltip('Увеличить остаток'));
+    await tester.ensureVisible(find.byTooltip('Больше'));
+    await tester.tap(find.byTooltip('Больше'));
     await tester.pumpAndSettle();
     final after = container
         .read(appControllerProvider)
@@ -105,12 +105,13 @@ void main() {
           afterOpeningDays: medicine.afterOpeningDays,
         );
     await tester.pumpAndSettle();
-    final minus = tester.widget<IconButton>(
-      find.byWidgetPredicate(
-        (w) => w is IconButton && w.tooltip == 'Уменьшить остаток',
+    final minus = tester.widget<InkWell>(
+      find.descendant(
+        of: find.byTooltip('Меньше'),
+        matching: find.byType(InkWell),
       ),
     );
-    expect(minus.onPressed, isNull);
+    expect(minus.onTap, isNull);
     expect(tester.takeException(), isNull);
   });
 

@@ -1,3 +1,4 @@
+import 'package:aptechka/core/design/app_palette.dart';
 import 'package:aptechka/core/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 
@@ -66,6 +67,7 @@ abstract final class AppTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: brightness,
+      extensions: [isDark ? AppPalette.dark : AppPalette.light],
       fontFamily: 'Manrope',
       colorScheme: scheme,
       scaffoldBackgroundColor: canvas,

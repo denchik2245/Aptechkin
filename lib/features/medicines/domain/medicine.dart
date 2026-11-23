@@ -1,3 +1,6 @@
+import 'package:aptechka/features/medicines/domain/medicine_purpose.dart';
+import 'package:aptechka/features/medicines/domain/stock_level.dart';
+
 enum MedicineStatus { okay, expiringSoon, expired, unknown }
 
 class Medicine {
@@ -22,6 +25,17 @@ class Medicine {
     this.registrationId,
     this.registrationStatus,
     this.catalogVersion,
+    this.purposes = const [],
+    this.customPurpose,
+    this.stockLevel,
+    this.tracksStock = true,
+    this.noExpiry = false,
+    this.description,
+    this.usage,
+    this.storage,
+    this.addedAt,
+    this.updatedAt,
+    this.stockUpdatedAt,
   });
 
   final String id;
@@ -44,6 +58,47 @@ class Medicine {
   final String? registrationId;
   final String? registrationStatus;
   final String? catalogVersion;
+
+  /// «Для чего» marks (several can be chosen); the first one is the tag
+  /// on the package card.
+  final List<MedicinePurpose> purposes;
+
+  /// «Свой вариант» of the «Для чего» sheet.
+  final String? customPurpose;
+
+  /// The package has [purpose] among its marks.
+  bool isFor(MedicinePurpose purpose) => purposes.contains(purpose);
+
+  /// «Температура, Головная боль»; `null` without marks.
+  String? get purposeLabel => purposesLabel(purposes, customPurpose);
+
+  /// Approximate remainder for drops, syrups and creams; `null` when the
+  /// stock is counted in pieces.
+  final StockLevel? stockLevel;
+
+  /// `false` for devices: «Считать остаток» is off.
+  final bool tracksStock;
+
+  /// «Без срока годности»: devices, bandages, plasters. No expiry warnings.
+  final bool noExpiry;
+
+  /// Short description under the photo («Жаропонижающее и
+  /// обезболивающее»); optional.
+  final String? description;
+
+  /// «Как применять» from the reference; optional.
+  final String? usage;
+
+  /// «Условия хранения» («Не выше 25 °C», «2–8 °C»); optional.
+  final String? storage;
+
+  /// When the package was added and last changed («Добавлено … · изменено …»).
+  final DateTime? addedAt;
+  final DateTime? updatedAt;
+
+  /// When the remainder was last changed («обновлено 20 октября»).
+  final DateTime? stockUpdatedAt;
+
   String get dosageLabel => dosage.isEmpty ? 'Дозировка не указана' : dosage;
 
   String get groupKey =>
@@ -66,15 +121,16 @@ class Medicine {
   }
 
   bool get hasIncompleteExpiryData =>
-      expiryDate == null || (openedAt != null && afterOpeningDays == null);
+      (expiryDate == null && !noExpiry) ||
+      (openedAt != null && afterOpeningDays == null);
 
   MedicineStatus statusAt(DateTime now, {int warningDays = 30}) {
     final today = DateTime(now.year, now.month, now.day);
     final expiry = effectiveExpiryDate;
     if (expiry != null && expiry.isBefore(today)) return MedicineStatus.expired;
-    if (hasIncompleteExpiryData || expiry == null) {
-      return MedicineStatus.unknown;
-    }
+    if (hasIncompleteExpiryData) return MedicineStatus.unknown;
+    // Only «Без срока годности» packages get here without a date.
+    if (expiry == null) return MedicineStatus.okay;
     if (expiry.difference(today).inDays <= warningDays) {
       return MedicineStatus.expiringSoon;
     }
@@ -99,7 +155,29 @@ class Medicine {
     bool clearOpenedAt = false,
     int? afterOpeningDays,
     bool clearAfterOpeningDays = false,
+    List<MedicinePurpose>? purposes,
+    String? customPurpose,
+    StockLevel? stockLevel,
+    bool? tracksStock,
+    bool? noExpiry,
+    DateTime? addedAt,
+    DateTime? updatedAt,
+    DateTime? stockUpdatedAt,
+    String? notes,
   }) => Medicine(
+    description: description,
+    usage: usage,
+    storage: storage,
+    addedAt: addedAt ?? this.addedAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+    stockUpdatedAt: stockUpdatedAt ?? this.stockUpdatedAt,
+    purposes: purposes ?? this.purposes,
+    customPurpose: customPurpose == null
+        ? this.customPurpose
+        : (customPurpose.trim().isEmpty ? null : customPurpose.trim()),
+    stockLevel: stockLevel ?? this.stockLevel,
+    tracksStock: tracksStock ?? this.tracksStock,
+    noExpiry: noExpiry ?? this.noExpiry,
     id: id ?? this.id,
     pharmacyId: pharmacyId ?? this.pharmacyId,
     name: name,
@@ -115,7 +193,7 @@ class Medicine {
         : afterOpeningDays ?? this.afterOpeningDays,
     location: location ?? this.location,
     gtin: gtin,
-    notes: notes,
+    notes: notes == null ? this.notes : (notes.isEmpty ? null : notes),
     catalogEntryId: catalogEntryId,
     manufacturer: manufacturer,
     packageDescription: packageDescription,
@@ -145,6 +223,17 @@ class Medicine {
     'registrationId': registrationId,
     'registrationStatus': registrationStatus,
     'catalogVersion': catalogVersion,
+    'purposes': [for (final purpose in purposes) purpose.name],
+    'customPurpose': customPurpose,
+    'stockLevel': stockLevel?.name,
+    'tracksStock': tracksStock,
+    'noExpiry': noExpiry,
+    'description': description,
+    'usage': usage,
+    'storage': storage,
+    'addedAt': addedAt?.toIso8601String(),
+    'updatedAt': updatedAt?.toIso8601String(),
+    'stockUpdatedAt': stockUpdatedAt?.toIso8601String(),
   };
 
   factory Medicine.fromJson(Map<String, Object?> json) => Medicine(
@@ -172,5 +261,21 @@ class Medicine {
     registrationId: json['registrationId'] as String?,
     registrationStatus: json['registrationStatus'] as String?,
     catalogVersion: json['catalogVersion'] as String?,
+    // Before 890:15550 a package kept one `purpose`.
+    purposes: [
+      for (final name in json['purposes'] as List<Object?>? ??
+          [?json['purpose']])
+        ?MedicinePurpose.parse(name as String?),
+    ],
+    customPurpose: json['customPurpose'] as String?,
+    stockLevel: StockLevel.parse(json['stockLevel'] as String?),
+    tracksStock: json['tracksStock'] as bool? ?? true,
+    noExpiry: json['noExpiry'] as bool? ?? false,
+    description: json['description'] as String?,
+    usage: json['usage'] as String?,
+    storage: json['storage'] as String?,
+    addedAt: DateTime.tryParse(json['addedAt'] as String? ?? ''),
+    updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? ''),
+    stockUpdatedAt: DateTime.tryParse(json['stockUpdatedAt'] as String? ?? ''),
   );
 }

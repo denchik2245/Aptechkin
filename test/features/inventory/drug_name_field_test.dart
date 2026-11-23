@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:aptechka/features/inventory/data/drug_catalog_service.dart';
 import 'package:aptechka/features/inventory/presentation/drug_name_field.dart';
+import 'package:aptechka/core/theme/app_theme.dart';
+import 'package:aptechka/features/inventory/presentation/widgets/catalog_item.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -50,11 +52,11 @@ void main() {
       ProviderScope(
         overrides: [drugCatalogServiceProvider.overrideWithValue(catalog)],
         child: MaterialApp(
+          theme: AppTheme.light,
           home: Scaffold(
             body: SingleChildScrollView(
               child: DrugNameField(
                 controller: controller,
-                validator: (_) => null,
                 onChanged: (_) {},
                 onSelected: (entry) => controller.text = entry.name,
               ),
@@ -83,14 +85,14 @@ void main() {
       await tester.pump(const Duration(milliseconds: 250));
       catalog.requests['лора']!.complete([second]);
       await tester.pumpAndSettle();
-      expect(find.text(second.name), findsOneWidget);
+      expect(find.text('Второй препарат, 400 мг'), findsOneWidget);
       catalog.requests['ибу']!.complete([first]);
       await tester.pumpAndSettle();
-      expect(find.text(first.name), findsNothing);
-      expect(find.text(second.name), findsOneWidget);
+      expect(find.text('Первый препарат, 200 мг'), findsNothing);
+      expect(find.text('Второй препарат, 400 мг'), findsOneWidget);
       await tester.enterText(find.byType(TextFormField), '');
       await tester.pumpAndSettle();
-      expect(find.byType(ListTile), findsNothing);
+      expect(find.byType(CatalogListItem), findsNothing);
     },
   );
 
@@ -109,7 +111,7 @@ void main() {
       await tester.tap(find.text('Заполнить вручную'));
       catalog.requests['ошибка']!.complete([first]);
       await tester.pumpAndSettle();
-      expect(find.byType(ListTile), findsNothing);
+      expect(find.byType(CatalogListItem), findsNothing);
       expect(controller.text, 'ошибка');
       await tester.enterText(find.byType(TextFormField), 'нет вариантов');
       await tester.pump(const Duration(milliseconds: 250));

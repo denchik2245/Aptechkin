@@ -2,8 +2,14 @@ import 'package:aptechka/features/accounts/application/account_controller.dart';
 import 'package:aptechka/features/accounts/data/local_profile_import.dart';
 import 'package:aptechka/features/inventory/data/medicine_repository.dart';
 import 'package:aptechka/features/inventory/domain/app_state.dart';
+import 'package:aptechka/features/inventory/domain/kit_icon.dart';
+import 'package:aptechka/features/inventory/domain/kit_operations.dart';
+import 'package:aptechka/features/inventory/domain/package_detail.dart';
 import 'package:aptechka/features/inventory/domain/pharmacy.dart';
 import 'package:aptechka/features/medicines/domain/medicine.dart';
+import 'package:aptechka/features/medicines/domain/medicine_purpose.dart';
+import 'package:aptechka/features/medicines/domain/stock_level.dart';
+import 'package:aptechka/features/reminders/domain/intake_marks.dart';
 import 'package:aptechka/features/reminders/domain/medication_reminder.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -27,7 +33,8 @@ class AppController extends AsyncNotifier<AppState> {
     return _repository!.load();
   }
 
-  Future<void> addMedicine({
+  /// Adds a package; returns its id, or `null` when the kit is read-only.
+  Future<String?> addMedicine({
     required String name,
     required String form,
     required String dosage,
@@ -49,13 +56,33 @@ class AppController extends AsyncNotifier<AppState> {
     int reminderHour = 9,
     int reminderMinute = 0,
     String reminderDose = '1 доза',
+    String? pharmacyId,
+    StockLevel? stockLevel,
+    bool tracksStock = true,
+    bool noExpiry = false,
+    String? notes,
+    List<MedicinePurpose> purposes = const [],
+    String? customPurpose,
   }) async {
     final current = state.requireValue;
-    if (!current.selectedPharmacy.canEdit) return;
+    final kitId = pharmacyId ?? current.selectedPharmacyId;
+    if (current.kitById(kitId)?.canEdit != true) return null;
     final medicineId = _uuid.v4();
+    final addedAt = DateTime.now();
     final medicine = Medicine(
       id: medicineId,
-      pharmacyId: current.selectedPharmacyId,
+      pharmacyId: kitId,
+      addedAt: addedAt,
+      updatedAt: addedAt,
+      stockUpdatedAt: addedAt,
+      stockLevel: stockLevel,
+      tracksStock: tracksStock,
+      noExpiry: noExpiry,
+      notes: notes?.trim().isEmpty == true ? null : notes?.trim(),
+      purposes: purposes,
+      customPurpose: customPurpose?.trim().isEmpty == true
+          ? null
+          : customPurpose?.trim(),
       name: name.trim(),
       activeIngredient: activeIngredient?.trim().isEmpty == true
           ? null
@@ -89,11 +116,14 @@ class AppController extends AsyncNotifier<AppState> {
         ),
       );
     }
-    final updated = current.copyWith(
-      medicines: [...current.medicines, medicine],
-      reminders: updatedReminders,
-    );
+    final updated = current
+        .copyWith(
+          medicines: [...current.medicines, medicine],
+          reminders: updatedReminders,
+        )
+        .touchKit(medicine.pharmacyId, DateTime.now());
     await _commit(updated);
+    return medicineId;
   }
 
   Future<void> selectPharmacy(String pharmacyId) async {
@@ -103,24 +133,221 @@ class AppController extends AsyncNotifier<AppState> {
     await _commit(updated);
   }
 
-  Future<void> createPharmacy(String name) async {
+  /// Creates a kit and selects it. Returns the new kit id.
+  Future<String> createPharmacy(String name, {KitIcon? icon}) async {
     final current = state.requireValue;
+    if (current.isKitNameTaken(name)) {
+      throw StateError('Аптечка «${name.trim()}» уже есть');
+    }
     final pharmacy = Pharmacy(
       id: _uuid.v4(),
       name: name.trim(),
       ownerLabel: 'Вы',
       isShared: false,
       canEdit: true,
+      icon: icon ?? KitIcon.suggest(name),
+      checkedAt: DateTime.now(),
       ownerAccountId: current.profileScopeId == 'guest'
           ? null
           : current.profileScopeId,
     );
-    final updated = current.copyWith(
-      pharmacies: [...current.pharmacies, pharmacy],
-      selectedPharmacyId: pharmacy.id,
-    );
-    await _commit(updated);
+    await _commit(current.addKit(pharmacy));
+    return pharmacy.id;
   }
+
+  /// Ensures a kit «Дом» exists and is selected (onboarding entry points).
+  Future<void> ensureHomeKit() async {
+    final current = state.requireValue;
+    final home = current.pharmacies
+        .where((item) => item.name.trim().toLowerCase() == 'дом')
+        .firstOrNull;
+    if (home != null) {
+      if (current.selectedPharmacyId != home.id) {
+        await selectPharmacy(home.id);
+      }
+      return;
+    }
+    await createPharmacy('Дом', icon: KitIcon.home);
+  }
+
+  Future<void> updatePharmacy(String id, {String? name, KitIcon? icon}) async {
+    final current = state.requireValue;
+    final kit = current.kitById(id);
+    if (kit == null || !kit.canEdit) return;
+    if (name != null && current.isKitNameTaken(name, exceptId: id)) {
+      throw StateError('Аптечка «${name.trim()}» уже есть');
+    }
+    await _commit(
+      current.updateKit(kit.copyWith(name: name?.trim(), icon: icon)),
+    );
+  }
+
+  /// Deletes a kit; packages move to [moveTo] or are removed with it.
+  /// Returns the previous state so the caller can offer «Отменить».
+  Future<AppState> deletePharmacy(String id, {String? moveTo}) async {
+    final current = state.requireValue;
+    final kit = current.kitById(id);
+    if (kit == null || !kit.isOwn) {
+      throw StateError('Удалить можно только свою аптечку');
+    }
+    if (moveTo != null && current.kitById(moveTo)?.canEdit != true) {
+      throw StateError('Выберите аптечку, куда перенести лекарства');
+    }
+    await _commit(current.deleteKit(id, moveTo: moveTo, now: DateTime.now()));
+    return current;
+  }
+
+  bool _canEdit(AppState state, String kitId) =>
+      state.kitById(kitId)?.canEdit == true;
+
+  /// Sets the remaining amount of one package, keeping its dates.
+  Future<void> setQuantity(String medicineId, int quantity) async {
+    final current = state.requireValue;
+    final package = current.medicines
+        .where((item) => item.id == medicineId)
+        .firstOrNull;
+    if (package == null || !_canEdit(current, package.pharmacyId)) return;
+    await _commit(
+      current.editPackage(
+        medicineId,
+        (item) => item.copyWith(quantity: quantity < 0 ? 0 : quantity),
+        DateTime.now(),
+        stock: true,
+      ),
+    );
+  }
+
+  /// «Осталось примерно» for drops, syrups and creams.
+  Future<void> setStockLevel(String medicineId, StockLevel level) =>
+      _editPackage(
+        medicineId,
+        (item) => item.copyWith(stockLevel: level),
+        stock: true,
+      );
+
+  /// «Для чего» from the package card.
+  /// «Для чего»: several marks and «Свой вариант» ('' clears it).
+  Future<void> setPurposes(
+    String medicineId,
+    List<MedicinePurpose> purposes, {
+    String custom = '',
+  }) => _editPackage(
+    medicineId,
+    (item) => item.copyWith(purposes: purposes, customPurpose: custom),
+  );
+
+  /// «Добавить заметку» from the package card; an empty note removes it.
+  Future<void> setNotes(String medicineId, String notes) => _editPackage(
+    medicineId,
+    (item) => item.copyWith(notes: notes.trim()),
+  );
+
+  /// «Отметить вскрытие»: opened on [openedAt] (today by default), usable
+  /// for [afterOpeningDays] days after that.
+  Future<void> openPackage(
+    String medicineId,
+    int? afterOpeningDays, {
+    DateTime? openedAt,
+  }) {
+    final day = openedAt ?? DateTime.now();
+    return _editPackage(
+      medicineId,
+      (item) => item.copyWith(
+        openedAt: DateTime(day.year, day.month, day.day),
+        afterOpeningDays: afterOpeningDays,
+        // «Не знаю»: opened, the term after opening is not known.
+        clearAfterOpeningDays: afterOpeningDays == null,
+      ),
+    );
+  }
+
+  /// «Указать срок» after opening.
+  Future<void> setAfterOpeningDays(String medicineId, int afterOpeningDays) =>
+      _editPackage(
+        medicineId,
+        (item) => item.copyWith(afterOpeningDays: afterOpeningDays),
+      );
+
+  /// «Указать срок» from the package card.
+  Future<void> setExpiry(String medicineId, DateTime expiryDate) =>
+      _editPackage(
+        medicineId,
+        (item) => item.copyWith(expiryDate: expiryDate, noExpiry: false),
+      );
+
+  Future<void> _editPackage(
+    String medicineId,
+    Medicine Function(Medicine package) edit, {
+    bool stock = false,
+  }) async {
+    final current = state.requireValue;
+    final package = current.medicines
+        .where((item) => item.id == medicineId)
+        .firstOrNull;
+    if (package == null || !_canEdit(current, package.pharmacyId)) return;
+    await _commit(
+      current.editPackage(medicineId, edit, DateTime.now(), stock: stock),
+    );
+  }
+
+  Future<void> movePackage(
+    String medicineId, {
+    required String kitId,
+    required String place,
+  }) async {
+    final current = state.requireValue;
+    final package = current.medicines
+        .where((item) => item.id == medicineId)
+        .firstOrNull;
+    if (package == null ||
+        !_canEdit(current, package.pharmacyId) ||
+        !_canEdit(current, kitId)) {
+      throw StateError('В эту аптечку нельзя переложить упаковку');
+    }
+    await _commit(
+      current.movePackage(
+        medicineId,
+        kitId: kitId,
+        place: place,
+        now: DateTime.now(),
+      ),
+    );
+  }
+
+  Future<void> addPlace(String kitId, String name) async {
+    final current = state.requireValue;
+    if (!_canEdit(current, kitId) || name.trim().isEmpty) return;
+    if (current.isPlaceTaken(kitId, name)) {
+      throw StateError('Место «${name.trim()}» уже есть');
+    }
+    await _commit(current.addPlace(kitId, name));
+  }
+
+  Future<void> renamePlace(String kitId, String from, String to) async {
+    final current = state.requireValue;
+    if (!_canEdit(current, kitId) || to.trim().isEmpty) return;
+    if (current.isPlaceTaken(kitId, to, except: from)) {
+      throw StateError('Место «${to.trim()}» уже есть');
+    }
+    await _commit(current.renamePlace(kitId, from, to));
+  }
+
+  Future<void> deletePlace(String kitId, String place) async {
+    final current = state.requireValue;
+    if (!_canEdit(current, kitId)) return;
+    await _commit(current.deletePlace(kitId, place));
+  }
+
+  Future<void> reorderPlaces(String kitId, List<String> ordered) async {
+    final current = state.requireValue;
+    if (!_canEdit(current, kitId)) return;
+    await _commit(current.reorderPlaces(kitId, ordered));
+  }
+
+  /// Restores a snapshot returned by a destructive action (undo).
+  Future<void> restoreSnapshot(AppState snapshot) => _commit(
+    snapshot.copyWith(settings: state.requireValue.settings),
+  );
 
   Future<void> updatePackage({
     required String medicineId,
@@ -139,25 +366,52 @@ class AppController extends AsyncNotifier<AppState> {
         .where((item) => item.id == package.pharmacyId)
         .firstOrNull;
     if (pharmacy?.canEdit != true) return;
-    final updated = current.copyWith(
-      medicines: current.medicines
-          .map(
-            (item) => item.id == medicineId
-                ? item.copyWith(
-                    quantity: quantity,
-                    location: location,
-                    expiryDate: expiryDate,
-                    clearExpiryDate: expiryDate == null,
-                    openedAt: openedAt,
-                    clearOpenedAt: openedAt == null,
-                    afterOpeningDays: afterOpeningDays,
-                    clearAfterOpeningDays: afterOpeningDays == null,
-                  )
-                : item,
-          )
-          .toList(),
+    await _commit(
+      current.editPackage(
+        medicineId,
+        (item) => item.copyWith(
+          quantity: quantity,
+          location: location,
+          expiryDate: expiryDate,
+          clearExpiryDate: expiryDate == null,
+          openedAt: openedAt,
+          clearOpenedAt: openedAt == null,
+          afterOpeningDays: afterOpeningDays,
+          clearAfterOpeningDays: afterOpeningDays == null,
+        ),
+        DateTime.now(),
+        stock: quantity != null && quantity != package.quantity,
+      ),
     );
-    await _commit(updated);
+  }
+
+  /// «Изменить упаковку» (894:18072): every field of the form at once,
+  /// including another kit.
+  Future<void> replacePackage(Medicine updated) async {
+    final current = state.requireValue;
+    final package = current.medicines
+        .where((item) => item.id == updated.id)
+        .firstOrNull;
+    if (package == null) return;
+    if (!_canEdit(current, package.pharmacyId) ||
+        !_canEdit(current, updated.pharmacyId)) {
+      throw StateError('Эту упаковку нельзя изменить');
+    }
+    final now = DateTime.now();
+    final stock =
+        package.quantity != updated.quantity ||
+        package.stockLevel != updated.stockLevel ||
+        package.tracksStock != updated.tracksStock;
+    var next = current.editPackage(
+      updated.id,
+      (_) => updated,
+      now,
+      stock: stock,
+    );
+    if (package.pharmacyId != updated.pharmacyId) {
+      next = next.touchKit(updated.pharmacyId, now);
+    }
+    await _commit(next);
   }
 
   Future<void> setTreatmentShopping(Set<String> ids) =>
@@ -250,16 +504,9 @@ class AppController extends AsyncNotifier<AppState> {
         .where((m) => m.id == reminder.medicineId)
         .firstOrNull;
     final available = (medicine?.quantity ?? 0) + (old?.stockDelta ?? 0);
-    // Only convert identical stock/dose units; drops cannot be subtracted from a bottle or ml.
-    bool sameUnit(String a, String b) =>
-        a == b ||
-        (a.startsWith('таблет') && b.startsWith('таблет')) ||
-        (a.startsWith('капсул') && b.startsWith('капсул')) ||
-        (a.startsWith('флакон') && b.startsWith('флакон'));
+    // Only identical stock/dose units; drops cannot be subtracted from a bottle.
     final canDeduct =
-        reminder.courseId != null &&
-        medicine != null &&
-        sameUnit(reminder.unit.toLowerCase(), medicine.unit.toLowerCase());
+        medicine != null && intakeDeductsStock(reminder, medicine);
     final delta = status == IntakeStatus.taken && canDeduct
         ? reminder.amount.clamp(0, available)
         : 0;
@@ -290,36 +537,37 @@ class AppController extends AsyncNotifier<AppState> {
     );
   }
 
-  Future<void> removePackage(String medicineId) async {
+  /// «Отменить факт приёма»: removes the mark and returns deducted units.
+  Future<void> undoIntake(String reminderId, DateTime day) =>
+      _commit(withoutIntake(state.requireValue, reminderId, day));
+
+  /// Removes a package; returns the previous state for «Отменить».
+  Future<AppState> removePackage(String medicineId) async {
     final current = state.requireValue;
     final package = current.medicines
         .where((item) => item.id == medicineId)
         .firstOrNull;
-    if (package == null) return;
+    if (package == null) return current;
     final pharmacy = current.pharmacies
         .where((item) => item.id == package.pharmacyId)
         .firstOrNull;
-    if (pharmacy?.canEdit != true) return;
-    final removedReminderIds = current.reminders
-        .where((item) => item.medicineId == medicineId)
-        .map((item) => item.id)
-        .toSet();
-    await _commit(
-      current.copyWith(
-        treatmentShoppingIds: current.treatmentShoppingIds
-            .where((id) => id != medicineId)
-            .toList(),
-        medicines: current.medicines
-            .where((item) => item.id != medicineId)
-            .toList(),
-        reminders: current.reminders
-            .where((item) => item.medicineId != medicineId)
-            .toList(),
-        intakeRecords: current.intakeRecords
-            .where((item) => !removedReminderIds.contains(item.reminderId))
-            .toList(),
-      ),
-    );
+    if (pharmacy?.canEdit != true) return current;
+    await _commit(current.removePackages({medicineId}, DateTime.now()));
+    return current;
+  }
+
+  /// «Убрать все просроченные»: removes the packages the user may edit and
+  /// returns the previous state for «Отменить».
+  Future<AppState> removePackages(Iterable<String> ids) async {
+    final current = state.requireValue;
+    final editable = {
+      for (final item in current.medicines)
+        if (ids.contains(item.id) && _canEdit(current, item.pharmacyId))
+          item.id,
+    };
+    if (editable.isEmpty) return current;
+    await _commit(current.removePackages(editable, DateTime.now()));
+    return current;
   }
 
   Future<void> _commit(AppState updated) async {

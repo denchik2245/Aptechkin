@@ -1,7 +1,12 @@
 import 'dart:async';
 
+import 'package:aptechka/core/design/design.dart';
+import 'package:aptechka/core/ui/app_button.dart';
+import 'package:aptechka/core/ui/app_field.dart';
 import 'package:aptechka/core/utils/russian_count.dart';
 import 'package:aptechka/features/inventory/data/drug_catalog_service.dart';
+import 'package:aptechka/features/inventory/domain/drug_catalog_search.dart';
+import 'package:aptechka/features/inventory/presentation/widgets/catalog_item.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -9,14 +14,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 class DrugNameField extends ConsumerStatefulWidget {
   const DrugNameField({
     required this.controller,
-    required this.validator,
+    this.error = false,
     required this.onChanged,
     required this.onSelected,
     super.key,
   });
 
   final TextEditingController controller;
-  final FormFieldValidator<String> validator;
+  final bool error;
   final ValueChanged<String> onChanged;
   final ValueChanged<DrugCatalogEntry> onSelected;
 
@@ -107,136 +112,79 @@ class _DrugNameFieldState extends ConsumerState<DrugNameField> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final catalog = ref.watch(drugCatalogServiceProvider);
+    final palette = context.palette;
+    final secondary = AppTypography.bodySmall.copyWith(
+      color: palette.textSecondary,
+    );
+    Widget link(String label, VoidCallback onPressed) => Align(
+      alignment: Alignment.centerLeft,
+      child: AppLinkButton(label: label, onPressed: onPressed),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        TextFormField(
-          key: const ValueKey('drug-name-input'),
+        AppField(
+          fieldKey: const ValueKey('drug-name-input'),
+          label: 'Название',
           controller: widget.controller,
-          validator: widget.validator,
-          textCapitalization: TextCapitalization.sentences,
+          required: true,
+          placeholderWhenEmpty: true,
+          error: widget.error,
+          maxLength: 120,
           onChanged: (value) {
             widget.onChanged(value);
             _search(value);
           },
-          decoration: InputDecoration(
-            labelText: 'Название *',
-            hintText: 'Например, Ибупрофен',
-            helperText: '${catalog.sourceLabel} · поиск от 2 символов',
-            helperMaxLines: 3,
-            suffixIcon: _loading
-                ? const Padding(
-                    padding: EdgeInsets.all(18),
-                    child: SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  )
-                : const Icon(Icons.search),
-          ),
         ),
+        // Suggestions as «catalog item» rows of «Поиск по названию»
+        // (890:15549).
         if (_showResults) ...[
-          const SizedBox(height: 10),
-          Card(
-            margin: EdgeInsets.zero,
-            clipBehavior: Clip.antiAlias,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-                  child: Semantics(
-                    liveRegion: true,
-                    child: Text(
-                      _loading
-                          ? 'Ищем в справочнике…'
-                          : _failed
-                          ? 'Не удалось выполнить поиск'
-                          : _results.isEmpty
-                          ? 'Совпадений не найдено'
-                          : 'Выберите препарат · ${russianCount(_results.length, 'вариант', 'варианта', 'вариантов')}',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                  ),
-                ),
-                if (!_loading && !_failed && _results.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: Text(
-                      'Попробуйте другое название или заполните характеристики вручную.',
-                    ),
-                  ),
-                if (_failed)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: TextButton.icon(
-                        onPressed: () => _search(widget.controller.text),
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Повторить поиск'),
-                      ),
-                    ),
-                  ),
-                ..._results.map(
-                  (entry) => ListTile(
-                    title: Text(entry.displayName),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('${entry.displayForm} · ${entry.dosageLabel}'),
-                        Text(
-                          'МНН: ${entry.displayIngredient}',
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        if (entry.manufacturer.isNotEmpty)
-                          Text(
-                            'Производитель: ${entry.displayManufacturer}',
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        if (entry.packageDescription.isNotEmpty)
-                          Text(
-                            'Упаковка: ${entry.displayPackage}',
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        if (entry.isInactive)
-                          Text(
-                            'В источнике: ${entry.registrationStatus}',
-                            style: TextStyle(color: colors.error),
-                          ),
-                      ],
-                    ),
-                    trailing: Icon(
-                      Icons.add_circle_outline,
-                      color: colors.primary,
-                    ),
-                    onTap: () => _choose(entry),
-                  ),
-                ),
-                if (_hasMore && !_loading)
-                  TextButton.icon(
-                    onPressed: () =>
-                        _search(widget.controller.text, more: true),
-                    icon: const Icon(Icons.expand_more),
-                    label: const Text('Показать ещё варианты'),
-                  ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-                  child: TextButton.icon(
-                    onPressed: () => setState(_dismiss),
-                    icon: const Icon(Icons.edit_outlined),
-                    label: const Text('Заполнить вручную'),
-                  ),
-                ),
-              ],
+          const SizedBox(height: 12),
+          Semantics(
+            liveRegion: true,
+            child: Text(
+              _loading
+                  ? 'Ищем в справочнике…'
+                  : _failed
+                  ? 'Не удалось выполнить поиск'
+                  : _results.isEmpty
+                  ? 'Совпадений не найдено'
+                  : 'Выберите препарат · ${russianCount(_results.length, 'вариант', 'варианта', 'вариантов')}',
+              style: AppTypography.bodyMedium.copyWith(
+                color: palette.textSecondary,
+              ),
             ),
           ),
+          if (!_loading && !_failed && _results.isEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Попробуйте другое название или заполните характеристики вручную.',
+              style: secondary,
+            ),
+          ],
+          if (_failed)
+            link('Повторить поиск', () => _search(widget.controller.text)),
+          for (final entry in _results) ...[
+            const SizedBox(height: 8),
+            CatalogListItem(
+              title: drugVariantTitle(entry),
+              details: CatalogItemCard.detailsOf(entry),
+              source: entry.isInactive
+                  ? 'В источнике: ${entry.registrationStatus}'
+                  : CatalogItemCard.sourceOf(entry),
+              gtin: entry.gtin,
+              photoName: entry.name,
+              onTap: () => _choose(entry),
+            ),
+          ],
+          if (_hasMore && !_loading) ...[
+            const SizedBox(height: 4),
+            link(
+              'Показать ещё варианты',
+              () => _search(widget.controller.text, more: true),
+            ),
+          ],
+          link('Заполнить вручную', () => setState(_dismiss)),
         ],
       ],
     );

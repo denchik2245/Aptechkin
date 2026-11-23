@@ -1,26 +1,40 @@
+import 'package:aptechka/app/routes.dart';
+import 'package:aptechka/core/design/design.dart';
+import 'package:aptechka/core/ui/app_button.dart';
+import 'package:aptechka/core/ui/app_chip.dart';
+import 'package:aptechka/core/ui/empty_state_card.dart';
+import 'package:aptechka/core/ui/nav_bars.dart';
+import 'package:aptechka/core/ui/search_field.dart';
+import 'package:aptechka/features/inventory/application/medicine_controller.dart';
 import 'package:aptechka/features/inventory/data/drug_catalog_service.dart';
-import 'package:aptechka/features/inventory/data/mdlp_drug_catalog_service.dart';
+import 'package:aptechka/features/inventory/data/recent_searches.dart';
 import 'package:aptechka/features/inventory/domain/drug_catalog_group.dart';
-import 'package:aptechka/features/inventory/domain/drug_name_matching.dart';
-import 'package:aptechka/core/utils/russian_count.dart';
+import 'package:aptechka/features/inventory/domain/drug_catalog_search.dart';
+import 'package:aptechka/features/inventory/presentation/widgets/catalog_item.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 
+/// Figma «Добавление препарата / 4 · Поиск по названию» (890:15549):
+/// «Поиск / Начало» (recent searches, packages the user adds most),
+/// «Результаты» (by name and by active ingredient), «Опечатка» («Возможно,
+/// вы искали» and similar names) and «Ничего не найдено».
 class DrugCatalogScreen extends ConsumerStatefulWidget {
-  const DrugCatalogScreen({super.key});
+  const DrugCatalogScreen({this.initialQuery = '', super.key});
+
+  /// «Найти вручную» of the all-kits search passes what was searched.
+  final String initialQuery;
 
   @override
   ConsumerState<DrugCatalogScreen> createState() => _DrugCatalogScreenState();
 }
 
 class _DrugCatalogScreenState extends ConsumerState<DrugCatalogScreen> {
-  final _query = TextEditingController();
+  late final _query = TextEditingController(text: widget.initialQuery);
   final _scroll = ScrollController();
-  List<({DrugCatalogGroup group, String name})> _groups = const [];
-  List<DrugCatalogGroup> _visible = const [];
-  Set<String> _suggestedKeys = const {};
+  List<IndexedDrugGroup> _groups = const [];
+  DrugSearchResult _result = const DrugSearchResult();
+  List<String> _recent = const [];
   bool _loading = true;
   bool _failed = false;
   bool _opening = false;
@@ -29,6 +43,9 @@ class _DrugCatalogScreenState extends ConsumerState<DrugCatalogScreen> {
   void initState() {
     super.initState();
     _load();
+    RecentSearches.drugs.load().then((value) {
+      if (mounted) setState(() => _recent = value);
+    });
   }
 
   @override
@@ -47,13 +64,9 @@ class _DrugCatalogScreenState extends ConsumerState<DrugCatalogScreen> {
       final entries = await ref.read(drugCatalogServiceProvider).listAll();
       if (!mounted) return;
       setState(() {
-        _groups = groupDrugCatalogEntries(entries)
-            .map(
-              (group) => (group: group, name: normalizeDrugQuery(group.name)),
-            )
-            .toList(growable: false);
+        _groups = indexDrugGroups(entries);
         _loading = false;
-        _filter();
+        _result = searchDrugGroups(_groups, _query.text);
       });
     } catch (_) {
       if (!mounted) return;
@@ -64,52 +77,34 @@ class _DrugCatalogScreenState extends ConsumerState<DrugCatalogScreen> {
     }
   }
 
-  void _filter() {
-    final prefix = normalizeDrugQuery(_query.text);
-    final exact = <DrugCatalogGroup>[];
-    final similar = <({DrugCatalogGroup group, int distance})>[];
-    for (final item in _groups) {
-      if (item.name.startsWith(prefix)) {
-        exact.add(item.group);
-      } else {
-        final distance = drugNameTypoDistance(item.name, prefix);
-        if (distance != null) {
-          similar.add((group: item.group, distance: distance));
-        }
-      }
-    }
-    similar.sort((a, b) {
-      final distance = a.distance.compareTo(b.distance);
-      return distance != 0
-          ? distance
-          : drugNameSortKey(a.group.name)
-                .compareTo(drugNameSortKey(b.group.name));
-    });
-    _suggestedKeys = similar.map((item) => item.group.key).toSet();
-    _visible = [...exact, ...similar.map((item) => item.group)];
-  }
-
-  void _queryChanged(String _) {
-    setState(_filter);
+  void _search(String text) {
+    setState(() => _result = searchDrugGroups(_groups, text));
     if (_scroll.hasClients) _scroll.jumpTo(0);
   }
 
-  Future<void> _openForm([DrugCatalogEntry? entry]) async {
+  void _setQuery(String text) {
+    _query.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    _search(text);
+  }
+
+  void _done() {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go(AppRoutes.inventory);
+    }
+  }
+
+  Future<void> _openForm() async {
     if (_opening) return;
     _opening = true;
     FocusScope.of(context).unfocus();
-    final uri = Uri(
-      path: '/medicine/new',
-      queryParameters: entry?.gtin == null ? null : {'catalog': entry!.gtin!},
-    );
     try {
-      final saved = await context.push<bool>(uri.toString(), extra: entry);
-      if (!mounted || saved != true) return;
-      if (context.canPop()) {
-        context.pop();
-      } else {
-        context.go('/inventory');
-      }
+      final saved = await context.push<bool>(AppRoutes.medicineNew);
+      if (mounted && saved == true) _done();
     } finally {
       _opening = false;
     }
@@ -119,218 +114,248 @@ class _DrugCatalogScreenState extends ConsumerState<DrugCatalogScreen> {
     if (_opening) return;
     _opening = true;
     FocusScope.of(context).unfocus();
+    RecentSearches.drugs.remember(group.name).then((value) {
+      if (mounted) setState(() => _recent = value);
+    });
     try {
       final saved = await context.push<bool>(
         Uri(
-          path: '/medicine/variants',
+          path: AppRoutes.medicineVariants,
           queryParameters: {'name': group.key},
         ).toString(),
         extra: group,
       );
-      if (!mounted || saved != true) return;
-      if (context.canPop()) {
-        context.pop();
-      } else {
-        context.go('/inventory');
-      }
+      if (mounted && saved == true) _done();
     } finally {
       _opening = false;
     }
   }
 
-  String _letter(DrugCatalogGroup group) =>
-      normalizeDrugQuery(group.name).substring(0, 1).toUpperCase();
+  /// «Часто добавляют»: catalog names the user already keeps, most packages
+  /// first.
+  List<DrugCatalogGroup> _frequent() {
+    final state = ref.watch(appControllerProvider).asData?.value;
+    if (state == null || _groups.isEmpty) return const [];
+    final counts = <String, int>{};
+    for (final medicine in state.medicines) {
+      final key = drugCatalogNameKey(medicine.name);
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    final byKey = {for (final item in _groups) item.group.key: item.group};
+    final keys = counts.keys.where(byKey.containsKey).toList()
+      ..sort((a, b) => counts[b]!.compareTo(counts[a]!));
+    return [for (final key in keys.take(3)) byKey[key]!];
+  }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final palette = context.palette;
     return Scaffold(
-      appBar: AppBar(title: const Text('Выберите препарат')),
+      backgroundColor: palette.background,
       body: SafeArea(
-        top: false,
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 680),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Начните вводить название — поиск учитывает опечатки.',
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        key: const ValueKey('catalog-name-input'),
-                        controller: _query,
-                        onChanged: _queryChanged,
-                        textCapitalization: TextCapitalization.sentences,
-                        decoration: InputDecoration(
-                          labelText: 'Название препарата',
-                          hintText: 'Например, Ибупрофен',
-                          prefixIcon: const Icon(Icons.search),
-                          suffixIcon: _query.text.isEmpty
-                              ? null
-                              : IconButton(
-                                  tooltip: 'Очистить поиск',
-                                  icon: const Icon(Icons.close),
-                                  onPressed: () {
-                                    _query.clear();
-                                    _queryChanged('');
-                                  },
-                                ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Semantics(
-                        liveRegion: true,
-                        child: Text(
-                          _loading
-                              ? 'Загружаем справочник…'
-                              : _failed
-                              ? 'Справочник недоступен'
-                              : '${_query.text.trim().isEmpty ? 'Все препараты' : 'Найдено препаратов'} · ${NumberFormat.decimalPattern('ru').format(_visible.length)}',
-                          style: theme.textTheme.labelLarge,
-                        ),
-                      ),
-                    ],
-                  ),
+        bottom: false,
+        child: Column(
+          children: [
+            const TitleNavBar.modal(title: 'Найти по названию'),
+            Expanded(
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 680),
+                  child: _body(context),
                 ),
-                Expanded(child: _buildList(theme)),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                  child: TextButton.icon(
-                    onPressed: () => _openForm(),
-                    icon: const Icon(Icons.edit_outlined),
-                    label: const Text('Нет в списке? Заполнить вручную'),
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildList(ThemeData theme) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_failed) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+  Widget _body(BuildContext context) {
+    final palette = context.palette;
+    final bottom = 24 + MediaQuery.viewPaddingOf(context).bottom;
+    final rows = <Widget Function()>[];
+    void gap(double height) => rows.add(() => SizedBox(height: height));
+    void label(String text) => rows.add(
+      () => Semantics(
+        header: true,
+        child: Text(
+          text,
+          style: AppTypography.bodyMedium.copyWith(
+            color: palette.textSecondary,
+          ),
+        ),
+      ),
+    );
+    void groups(List<DrugCatalogGroup> items, {bool ingredient = false}) {
+      for (var i = 0; i < items.length; i++) {
+        final group = items[i];
+        gap(8);
+        rows.add(
+          () => CatalogListItem(
+            key: ValueKey('catalog-group-${group.key}'),
+            title: drugGroupTitle(group),
+            details: drugGroupDetails(group, ingredient: ingredient),
+            gtin: group.entries
+                .map((entry) => entry.gtin)
+                .whereType<String>()
+                .firstOrNull,
+            photoName: group.name,
+            onTap: () => _openGroup(group),
+          ),
+        );
+      }
+    }
+
+    void manual() {
+      // 20 to the text; the 44 pt link centres its 22 pt line.
+      gap(9);
+      rows.add(
+        () => Align(
+          alignment: Alignment.centerLeft,
+          child: AppLinkButton(
+            label: 'Нет в справочнике? Заполнить вручную',
+            onPressed: _openForm,
+          ),
+        ),
+      );
+    }
+
+    final query = _query.text.trim();
+    if (_loading) {
+      gap(20);
+      rows.add(
+        () => Text(
+          'Загружаем справочник…',
+          style: AppTypography.bodySmall.copyWith(color: palette.textSecondary),
+        ),
+      );
+    } else if (_failed) {
+      gap(20);
+      rows.add(
+        () => Text(
+          'Справочник недоступен',
+          style: AppTypography.bodyMedium.copyWith(color: palette.textPrimary),
+        ),
+      );
+      gap(12);
+      rows.add(
+        () =>
+            AppButton.secondary(label: 'Повторить загрузку', onPressed: _load),
+      );
+      manual();
+    } else if (query.isEmpty) {
+      if (_recent.isNotEmpty) {
+        gap(20);
+        label('Недавние');
+        gap(8);
+        rows.add(
+          () => Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
-              const Text('Не удалось загрузить список препаратов.'),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: _load,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Повторить загрузку'),
-              ),
+              for (final item in _recent)
+                AppChip(
+                  label: item,
+                  icon: 'search-16',
+                  tintIcon: true,
+                  selected: false,
+                  onTap: () => _setQuery(item),
+                ),
             ],
           ),
-        ),
-      );
-    }
-    if (_visible.isEmpty) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Text(
-            'Препаратов с таким началом названия нет.\nПроверьте название или заполните поля вручную.',
-            textAlign: TextAlign.center,
+        );
+      }
+      final frequent = _frequent();
+      if (frequent.isNotEmpty) {
+        gap(20);
+        label('Часто добавляют');
+        groups(frequent);
+      }
+      manual();
+    } else if (_result.isEmpty) {
+      gap(80);
+      rows.add(
+        () => Center(
+          child: EmptyStateCard(
+            image: 'assets/illustrations/onboarding/empty-medicines.png',
+            imageZoom: 1.1146,
+            title: 'Не нашли в справочнике',
+            text:
+                'Проверьте написание или заполните карточку сами — хватит '
+                'названия, формы и срока',
+            buttonLabel: 'Заполнить вручную',
+            onPressed: _openForm,
           ),
         ),
       );
-    }
-    return ListView.builder(
-      key: const ValueKey('catalog-list'),
-      controller: _scroll,
-      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-      itemCount: _visible.length,
-      itemBuilder: (context, index) {
-        final group = _visible[index];
-        final letter = _letter(group);
-        final startsSection =
-            index == 0 || _letter(_visible[index - 1]) != letter;
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+    } else if (_result.byName.isEmpty && _result.byIngredient.isEmpty) {
+      final suggestion = _result.similar.first;
+      gap(20);
+      rows.add(
+        () => Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            if (startsSection)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(4, 12, 4, 12),
-                child: Text(
-                  letter,
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-              ),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Card(
-                clipBehavior: Clip.antiAlias,
-                child: InkWell(
-                  key: ValueKey('catalog-group-${group.key}'),
-                  onTap: () => _openGroup(group),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                group.name,
-                                style: theme.textTheme.titleMedium,
-                              ),
-                              const SizedBox(height: 4),
-                              if (_suggestedKeys.contains(group.key))
-                                Text(
-                                  'Похожее название',
-                                  style: theme.textTheme.labelMedium?.copyWith(
-                                    color: theme.colorScheme.primary,
-                                  ),
-                                ),
-                              Text(
-                                russianCount(
-                                  group.variants.length,
-                                  'вариант',
-                                  'варианта',
-                                  'вариантов',
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                group.forms.join(' · '),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Icon(
-                          Icons.chevron_right,
-                          color: theme.colorScheme.primary,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+            Text(
+              'Возможно, вы искали',
+              style: AppTypography.bodySmall.copyWith(
+                color: palette.textSecondary,
               ),
             ),
+            AppChip(
+              label: suggestion.name,
+              selected: false,
+              onTap: () => _setQuery(suggestion.name),
+            ),
           ],
-        );
-      },
+        ),
+      );
+      gap(20);
+      label('Похожие');
+      groups(_result.similar);
+      manual();
+    } else {
+      if (_result.byName.isNotEmpty) {
+        gap(20);
+        label('По названию');
+        groups(_result.byName);
+      }
+      if (_result.byIngredient.isNotEmpty) {
+        gap(20);
+        label('Содержат ${_result.ingredient ?? query.toLowerCase()}');
+        groups(_result.byIngredient, ingredient: true);
+      }
+      manual();
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: AppSearchField(
+            fieldKey: const ValueKey('catalog-name-input'),
+            controller: _query,
+            hint: 'Название или действующее вещество',
+            onChanged: _search,
+          ),
+        ),
+        Expanded(
+          child: Semantics(
+            liveRegion: true,
+            child: ListView.builder(
+              key: const ValueKey('catalog-list'),
+              controller: _scroll,
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: EdgeInsets.fromLTRB(16, 0, 16, bottom),
+              itemCount: rows.length,
+              itemBuilder: (context, index) => rows[index](),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

@@ -1,15 +1,43 @@
 import 'dart:convert';
 
 import 'package:aptechka/features/inventory/domain/app_state.dart';
+import 'package:aptechka/features/settings/domain/app_settings.dart';
+
+/// A backup read from a file: the data and when the copy was made.
+class BackupFile {
+  const BackupFile(this.state, this.createdAt);
+  final AppState state;
+
+  /// `null` when the file has no valid `createdAt`.
+  final DateTime? createdAt;
+}
 
 abstract final class BackupCodec {
-  static String encode(AppState state) => const JsonEncoder.withIndent('  ')
-      .convert({
+  static String encode(AppState state, {DateTime? createdAt}) =>
+      const JsonEncoder.withIndent('  ').convert({
         'app': 'aptechka',
         'version': 1,
-        'createdAt': DateTime.now().toIso8601String(),
+        'createdAt': (createdAt ?? DateTime.now()).toIso8601String(),
         'data': state.toJson(),
       });
+
+  /// «aptechka-2026-11-06.json» (1159:24653).
+  static String fileName(DateTime createdAt) {
+    String two(int value) => value.toString().padLeft(2, '0');
+    return 'aptechka-${createdAt.year}-${two(createdAt.month)}-'
+        '${two(createdAt.day)}.json';
+  }
+
+  /// [decode] plus the `createdAt` of the copy.
+  static BackupFile decodeFile(String source) {
+    final state = decode(source);
+    final envelope = jsonDecode(source) as Map;
+    final createdAt = envelope['createdAt'];
+    return BackupFile(
+      state,
+      createdAt is String ? DateTime.tryParse(createdAt) : null,
+    );
+  }
 
   static AppState decode(String source) {
     try {
@@ -35,9 +63,9 @@ abstract final class BackupCodec {
       final rawSettings = data['settings'] as Map;
       final normalizedSettings = state.settings.toJson();
       if (normalizedSettings.entries.any(
-        (entry) =>
-            !rawSettings.containsKey(entry.key) ||
-            rawSettings[entry.key] != entry.value,
+        (entry) => rawSettings.containsKey(entry.key)
+            ? rawSettings[entry.key] != entry.value
+            : !AppSettings.optionalJsonKeys.contains(entry.key),
       )) {
         throw const FormatException();
       }

@@ -1,9 +1,14 @@
+import 'package:aptechka/core/ui/app_toast.dart';
 import 'package:aptechka/app/app.dart';
 import 'package:aptechka/app/router.dart';
+import 'package:aptechka/core/utils/date_labels.dart';
 import 'package:aptechka/features/inventory/application/medicine_controller.dart';
 import 'package:aptechka/features/inventory/data/drug_catalog_service.dart';
 import 'package:aptechka/features/inventory/data/mdlp_drug_catalog_service.dart';
+import 'package:aptechka/features/inventory/domain/package_form.dart';
 import 'package:aptechka/features/inventory/presentation/drug_name_field.dart';
+import 'package:aptechka/features/medicines/domain/medicine.dart';
+import 'package:aptechka/features/medicines/domain/stock_level.dart';
 import 'package:aptechka/features/settings/domain/backup_codec.dart';
 import 'package:aptechka/features/settings/domain/app_settings.dart';
 import 'package:flutter/material.dart';
@@ -11,7 +16,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package_form_helpers.dart';
+
 void main() {
+  // Saving shows «… добавлен в «Дом» · Ещё одно» (894:18224).
+  tearDown(hideAppToast);
   Future<ProviderContainer> mount(
     WidgetTester tester, {
     DrugCatalogService catalog = const DemoDrugCatalogService(),
@@ -42,40 +51,23 @@ void main() {
     return container;
   }
 
-  Future<void> reveal(
-    WidgetTester tester,
-    String key, {
-    double delta = 200,
-  }) async {
-    final target = find.byKey(ValueKey(key));
-    // Scroll the form itself rather than the long ingredient field under its center.
-    for (var i = 0; target.evaluate().isEmpty && i < 50; i++) {
-      final position = tester
-          .state<ScrollableState>(find.byType(Scrollable).first)
-          .position;
-      position.jumpTo(
-        (position.pixels + delta).clamp(0, position.maxScrollExtent),
-      );
-      await tester.pumpAndSettle();
-    }
-    await tester.ensureVisible(target);
-    await tester.pumpAndSettle();
-  }
+  Medicine lastSaved(ProviderContainer container) =>
+      container.read(appControllerProvider).requireValue.medicines.last;
 
-  Future<void> search(WidgetTester tester, String query) async {
-    await reveal(tester, 'drug-name-input', delta: -200);
-    await tester.enterText(
-      find.byKey(const ValueKey('drug-name-input')),
-      query,
+  Future<void> choose(PackageFormDriver form, String name) async {
+    final option = find.descendant(
+      of: find.byType(DrugNameField),
+      // Suggestions read «Название, доза».
+      matching: find.textContaining('$name,'),
     );
-    await tester.pump(const Duration(milliseconds: 300));
-    await tester.pumpAndSettle();
+    await form.tap(option);
   }
 
   testWidgets(
     'readable prefill saves original catalog identity and displays saved text normally',
     (tester) async {
       final container = await mount(tester);
+      final form = PackageFormDriver(tester);
       const entry = DrugCatalogEntry(
         id: 'uppercase',
         name: 'ПРЕПАРАТ',
@@ -91,44 +83,19 @@ void main() {
       await tester.pumpAndSettle();
       appRouter.push('/medicine/new', extra: entry);
       await tester.pumpAndSettle();
+      // «catalog item» instead of the manual fields.
+      await form.expectShown(find.text('Препарат, 500 МЕ'));
       expect(
-        tester
-            .widget<TextFormField>(
-              find.byKey(const ValueKey('drug-name-input')),
-            )
-            .controller!
-            .text,
-        'Препарат',
+        find.text('Таблетки, покрытые оболочкой · 10 шт. в упаковке'),
+        findsOneWidget,
       );
-      await reveal(tester, 'drug-ingredient-input');
-      expect(
-        tester
-            .widget<TextFormField>(
-              find.byKey(const ValueKey('drug-ingredient-input')),
-            )
-            .controller!
-            .text,
-        'Флуоцинолона ацетонид',
-      );
-      await reveal(tester, 'drug-form-input');
-      expect(find.text('Таблетки, покрытые оболочкой'), findsWidgets);
-      await reveal(tester, 'package-location-input');
-      await tester.enterText(
-        find.byKey(const ValueKey('package-location-input')),
-        'Шкаф',
-      );
-      await tester.scrollUntilVisible(
-        find.text('Добавить упаковку'),
-        300,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.tap(find.text('Добавить упаковку'));
-      await tester.pumpAndSettle();
-      final medicine = container
-          .read(appControllerProvider)
-          .requireValue
-          .medicines
-          .last;
+      expect(find.byKey(const ValueKey('drug-name-input')), findsNothing);
+      expect(find.text('Заполните сами'), findsNothing);
+      expect(await form.quantity(), '10 таблеток');
+      expect(find.text('целая упаковка'), findsOneWidget);
+      await form.expiryLater();
+      await form.save();
+      final medicine = lastSaved(container);
       expect(medicine.catalogEntryId, entry.id);
       expect(medicine.name, entry.name);
       expect(medicine.activeIngredient, entry.activeIngredient);
@@ -137,13 +104,12 @@ void main() {
       expect(medicine.packageDescription, entry.packageDescription);
       expect(medicine.registrationId, entry.registrationId);
       expect(medicine.dosage, '500 МЕ');
-      await tester.scrollUntilVisible(
-        find.text('Препарат'),
-        200,
-        scrollable: find.byType(Scrollable).first,
-      );
-      expect(find.text('Препарат'), findsOneWidget);
-      expect(find.text('500 МЕ'), findsOneWidget);
+      expect(medicine.quantity, 10);
+      expect(medicine.unit, 'таблеток');
+      expect(medicine.expiryDate, isNull);
+      expect(medicine.noExpiry, isFalse);
+      // The new package's card opens (894:18224).
+      expect(find.text('Препарат, 500 МЕ'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -152,66 +118,27 @@ void main() {
     'selected capsule variant fills fields and saves without guessing package data',
     (tester) async {
       final container = await mount(tester);
-      await reveal(tester, 'package-quantity-input');
-      await tester.enterText(
-        find.byKey(const ValueKey('package-quantity-input')),
-        '7',
-      );
-      await reveal(tester, 'package-location-input');
-      await tester.enterText(
-        find.byKey(const ValueKey('package-location-input')),
-        'Дорожная аптечка',
-      );
-      await search(tester, 'нурофен капсулы 400');
-      await tester.scrollUntilVisible(
-        find.text('Нурофен Экспресс Форте'),
-        150,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.tap(find.text('Нурофен Экспресс Форте'));
-      await tester.pumpAndSettle();
-      expect(
-        find.descendant(
-          of: find.byType(DrugNameField),
-          matching: find.byType(ListTile),
-        ),
-        findsNothing,
-      );
-      await reveal(tester, 'drug-ingredient-input');
-      expect(
-        tester
-            .widget<TextFormField>(
-              find.byKey(const ValueKey('drug-ingredient-input')),
-            )
-            .controller!
-            .text,
-        'Ибупрофен',
-      );
-      await reveal(tester, 'drug-form-input');
-      expect(find.text('Капсулы'), findsOneWidget);
-      expect(
-        tester
-            .widget<TextFormField>(
-              find.byKey(const ValueKey('drug-dosage-input')),
-            )
-            .controller!
-            .text,
-        '400 мг',
-      );
-      await tester.tap(find.text('Добавить упаковку'));
-      await tester.pumpAndSettle();
-      final medicine = container
-          .read(appControllerProvider)
-          .requireValue
-          .medicines
-          .last;
+      final form = PackageFormDriver(tester);
+      expect(find.text('Заполните сами'), findsOneWidget);
+      await form.plus(6);
+      expect(await form.quantity(), '7 шт.');
+      await form.enter('drug-name-input', 'нурофен капсулы 400');
+      await choose(form, 'Нурофен Экспресс Форте');
+      await form.expectShown(find.text('Нурофен Экспресс Форте, 400 мг'));
+      expect(find.text('Заполните сами'), findsNothing);
+      // The amount the user set survives the catalog fill.
+      expect(await form.quantity(), '7 капсул');
+      await form.addPlace('Бардачок');
+      await form.expiryLater();
+      await form.save();
+      final medicine = lastSaved(container);
       expect(medicine.name, 'Нурофен Экспресс Форте');
       expect(medicine.activeIngredient, 'Ибупрофен');
       expect(medicine.form, 'Капсулы');
       expect(medicine.dosage, '400 мг');
       expect(medicine.unit, 'капсул');
       expect(medicine.quantity, 7);
-      expect(medicine.location, 'Дорожная аптечка');
+      expect(medicine.location, 'Бардачок');
       expect(medicine.expiryDate, isNull);
       expect(medicine.gtin, isNull);
       expect(tester.takeException(), isNull);
@@ -225,28 +152,16 @@ void main() {
       // Asset IO/isolate parsing run outside the fake widget-test clock.
       await tester.runAsync(() => catalog.search('гомеовокс'));
       final container = await mount(tester, catalog: catalog);
-      await search(tester, 'гомеовокс');
-      await tester.scrollUntilVisible(
-        find.text('Гомеовокс').first,
-        150,
-        scrollable: find.byType(Scrollable).first,
+      final form = PackageFormDriver(tester);
+      await form.enter('drug-name-input', 'гомеовокс');
+      await form.tap(
+        find.descendant(
+          of: find.byType(DrugNameField),
+          matching: find.text('Гомеовокс'),
+        ),
       );
-      await tester.tap(find.text('Гомеовокс').first);
-      await tester.pumpAndSettle();
-      // Collapsing the results can leave the list below the package fields.
-      tester
-          .state<ScrollableState>(find.byType(Scrollable).first)
-          .position
-          .jumpTo(0);
-      await tester.pumpAndSettle();
-      await reveal(tester, 'drug-name-input', delta: -200);
-      await reveal(tester, 'package-location-input');
-      await tester.enterText(
-        find.byKey(const ValueKey('package-location-input')),
-        'Шкаф',
-      );
-      await tester.tap(find.text('Добавить упаковку'));
-      await tester.pumpAndSettle();
+      await form.expiryLater();
+      await form.save();
       final state = container.read(appControllerProvider).requireValue;
       final medicine = state.medicines.last;
       expect(medicine.name, 'Гомеовокс');
@@ -273,64 +188,111 @@ void main() {
     'changing a chosen name removes stale autofill and allows manual save',
     (tester) async {
       final container = await mount(tester);
-      await search(tester, 'лора');
-      await tester.scrollUntilVisible(
-        find.text('Лоратадин'),
-        150,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.tap(find.text('Лоратадин'));
-      await tester.pumpAndSettle();
-      await search(tester, 'Свой препарат');
-      expect(find.text('Совпадений не найдено'), findsOneWidget);
-      await tester.scrollUntilVisible(
-        find.text('Заполнить вручную'),
-        150,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.tap(find.text('Заполнить вручную'));
-      await tester.pumpAndSettle();
-      await reveal(tester, 'drug-ingredient-input', delta: -200);
-      expect(
-        tester
-            .widget<TextFormField>(
-              find.byKey(const ValueKey('drug-ingredient-input')),
-            )
-            .controller!
-            .text,
-        isEmpty,
-      );
-      await reveal(tester, 'drug-dosage-input');
-      expect(
-        tester
-            .widget<TextFormField>(
-              find.byKey(const ValueKey('drug-dosage-input')),
-            )
-            .controller!
-            .text,
-        isEmpty,
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey('drug-dosage-input')),
-        'по упаковке',
-      );
-      await reveal(tester, 'package-location-input');
-      await tester.enterText(
-        find.byKey(const ValueKey('package-location-input')),
-        'Шкаф',
-      );
-      await tester.tap(find.text('Добавить упаковку'));
-      await tester.pumpAndSettle();
-      final medicine = container
-          .read(appControllerProvider)
-          .requireValue
-          .medicines
-          .last;
+      final form = PackageFormDriver(tester);
+      await form.enter('drug-name-input', 'лора');
+      await choose(form, 'Лоратадин');
+      await form.tap(find.text('Изменить'));
+      expect(await form.text('drug-name-input'), 'Лоратадин');
+      await form.enter('drug-name-input', 'Свой препарат');
+      await form.expectShown(find.text('Совпадений не найдено'));
+      await form.tap(find.text('Заполнить вручную'));
+      expect(await form.text('drug-dosage-input'), isEmpty);
+      await form.expectShown(find.text('Заполните сами'));
+      await form.enter('drug-dosage-input', 'по упаковке');
+      await form.chooseForm('Таблетки, капсулы');
+      await form.expiryLater();
+      await form.save();
+      final medicine = lastSaved(container);
       expect(medicine.name, 'Свой препарат');
       expect(medicine.activeIngredient, isNull);
       expect(medicine.dosage, 'по упаковке');
+      expect(medicine.form, 'Таблетки');
+      expect(medicine.unit, 'таблеток');
+      expect(medicine.catalogEntryId, isNull);
       expect(medicine.gtin, isNull);
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('empty form shows the errors of «Ошибки заполнения»', (
+    tester,
+  ) async {
+    final container = await mount(tester);
+    final form = PackageFormDriver(tester);
+    final before = container
+        .read(appControllerProvider)
+        .requireValue
+        .medicines
+        .length;
+    await form.save();
+    await form.reveal(find.text('Введите название с упаковки'));
+    expect(
+      find.text('Выберите форму — от неё зависит, как считать остаток'),
+      findsOneWidget,
+    );
+    await form.reveal(find.text('Укажите срок или выберите «Укажу позже»'));
+    expect(
+      container.read(appControllerProvider).requireValue.medicines.length,
+      before,
+    );
+    // «Укажу позже» hides the month field and its error.
+    await form.expiryLater();
+    expect(find.text('Укажите срок или выберите «Укажу позже»'), findsNothing);
+    await form.expectShown(
+      find.text('Напомним указать срок. В карточке будет «Срок не указан»'),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('syrup is counted by level and remembers the opening', (
+    tester,
+  ) async {
+    final container = await mount(tester);
+    final form = PackageFormDriver(tester);
+    await form.enter('drug-name-input', 'Сироп от кашля');
+    await form.chooseForm('Сироп, суспензия, раствор');
+    expect(find.text('Полный'), findsOneWidget);
+    expect(find.text('новый флакон'), findsOneWidget);
+    await form.tap(find.text('Уже начата'));
+    expect(find.text('Больше половины'), findsOneWidget);
+    await form.tap(find.byKey(const ValueKey('package-expiry-input')));
+    await form.tapInSheet('Готово');
+    final now = DateTime.now();
+    final expiry = DateTime(now.year + 1, now.month);
+    expect(find.text(monthYearLabel(expiry)), findsOneWidget);
+    await form.tap(find.text('Флакон уже вскрыт'));
+    await form.reveal(find.text(compactDate(now)));
+    await form.tap(find.text('Срок после вскрытия'));
+    await form.tapInSheet('6 месяцев');
+    await form.tapInSheet('Готово');
+    await form.save();
+    final medicine = lastSaved(container);
+    expect(medicine.name, 'Сироп от кашля');
+    expect(medicine.form, 'Сироп');
+    expect(medicine.unit, 'флакон');
+    expect(medicine.quantity, 1);
+    expect(medicine.stockLevel, StockLevel.moreThanHalf);
+    expect(medicine.expiryDate, endOfMonth(expiry.year, expiry.month));
+    expect(medicine.openedAt, isNotNull);
+    expect(medicine.afterOpeningDays, 180);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('device has no stock count and no expiry', (tester) async {
+    final container = await mount(tester);
+    final form = PackageFormDriver(tester);
+    await form.enter('drug-name-input', 'Термометр');
+    await form.chooseForm('Прибор');
+    expect(find.text('Остаток'), findsOneWidget);
+    expect(find.text('Считать остаток'), findsOneWidget);
+    expect(find.text('Уже начата'), findsNothing);
+    await form.tap(find.text('Без срока годности'));
+    expect(find.byKey(const ValueKey('package-expiry-input')), findsNothing);
+    await form.save();
+    final medicine = lastSaved(container);
+    expect(medicine.tracksStock, isFalse);
+    expect(medicine.noExpiry, isTrue);
+    expect(medicine.statusAt(DateTime.now()), MedicineStatus.okay);
+    expect(tester.takeException(), isNull);
+  });
 }

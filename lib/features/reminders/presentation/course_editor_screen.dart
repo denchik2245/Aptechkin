@@ -1,3 +1,5 @@
+import 'package:aptechka/app/routes.dart';
+
 import 'dart:convert';
 
 import 'package:aptechka/core/utils/russian_count.dart';
@@ -120,7 +122,7 @@ class _CourseEditorState extends ConsumerState<CourseEditorScreen> {
         if (context.canPop()) {
           context.pop();
         } else {
-          context.go('/reminders');
+          context.go(AppRoutes.reminders);
         }
       }
     }
@@ -481,7 +483,7 @@ class _CourseEditorState extends ConsumerState<CourseEditorScreen> {
             TextButton(
               onPressed: () {
                 Navigator.pop(sheetContext);
-                context.push('/medicine/select');
+                context.push(AppRoutes.medicineSelect);
               },
               child: const Text('+ Нет в аптечке — добавить новое'),
             ),
@@ -669,7 +671,7 @@ class _CourseEditorState extends ConsumerState<CourseEditorScreen> {
       await ref
           .read(appControllerProvider.notifier)
           .saveCourse(draft, reminders);
-      if (mounted) context.go('/treatment/course/$id');
+      if (mounted) context.go(AppRoutes.course(id));
     } catch (_) {
       if (mounted) {
         setState(() => saving = false);

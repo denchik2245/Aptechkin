@@ -1,3 +1,4 @@
+import 'package:aptechka/app/routes.dart';
 import 'package:aptechka/core/widgets/design_icon.dart';
 import 'package:aptechka/core/widgets/round_icon_button.dart';
 import 'package:aptechka/features/inventory/application/medicine_controller.dart';
@@ -50,7 +51,7 @@ class NotificationPreviewScreen extends ConsumerWidget {
                         icon: const DesignIcon('back'),
                         onPressed: () => context.canPop()
                             ? context.pop()
-                            : context.go('/reminders'),
+                            : context.go(AppRoutes.reminders),
                       ),
                       const SizedBox(width: 16),
                       const Expanded(

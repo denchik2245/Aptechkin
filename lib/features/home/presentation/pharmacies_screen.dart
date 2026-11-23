@@ -1,119 +1,172 @@
-import 'package:aptechka/core/widgets/design_icon.dart';
-import 'package:aptechka/core/theme/app_colors.dart';
+import 'package:aptechka/app/routes.dart';
+import 'package:aptechka/core/design/design.dart';
+import 'package:aptechka/core/ui/empty_state_card.dart';
+import 'package:aptechka/core/ui/swipe_reveal.dart';
 import 'package:aptechka/core/widgets/async_value_view.dart';
+import 'package:aptechka/core/widgets/design_icon.dart';
+import 'package:aptechka/features/home/presentation/kit_sheets.dart';
+import 'package:aptechka/features/home/presentation/widgets/kit_card.dart';
 import 'package:aptechka/features/inventory/application/medicine_controller.dart';
 import 'package:aptechka/features/inventory/domain/app_state.dart';
+import 'package:aptechka/features/inventory/domain/kit_operations.dart';
 import 'package:aptechka/features/inventory/domain/pharmacy.dart';
-import 'package:aptechka/features/medicines/domain/medicine.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-class PharmaciesScreen extends ConsumerWidget {
+/// Figma section «1 · Мои аптечки» (825:4877).
+class PharmaciesScreen extends ConsumerStatefulWidget {
   const PharmaciesScreen({super.key});
 
-  Future<void> _createPharmacy(BuildContext context, WidgetRef ref) async {
-    final controller = TextEditingController();
-    final name = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Новая аптечка'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLength: 40,
-          textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(labelText: 'Название'),
-          onSubmitted: (value) => Navigator.pop(dialogContext, value.trim()),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Отмена'),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.pop(dialogContext, controller.text.trim()),
-            child: const Text('Создать'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    if (name == null || name.isEmpty || !context.mounted) return;
-    await ref.read(appControllerProvider.notifier).createPharmacy(name);
-    if (context.mounted) context.go('/inventory');
+  @override
+  ConsumerState<PharmaciesScreen> createState() => _PharmaciesScreenState();
+}
+
+class _PharmaciesScreenState extends ConsumerState<PharmaciesScreen> {
+  String? _swiped;
+
+  AppController get _controller => ref.read(appControllerProvider.notifier);
+
+  Future<void> _create(AppState state) async {
+    final draft = await showKitEditorSheet(context, state: state);
+    if (draft == null) return;
+    await _controller.createPharmacy(draft.name, icon: draft.icon);
+    if (mounted) context.go(AppRoutes.inventory);
+  }
+
+  Future<void> _edit(AppState state, Pharmacy kit) async {
+    setState(() => _swiped = null);
+    final draft = await showKitEditorSheet(context, state: state, kit: kit);
+    if (draft == null) return;
+    await _controller.updatePharmacy(kit.id, name: draft.name, icon: draft.icon);
+  }
+
+  Future<void> _delete(AppState state, Pharmacy kit) async {
+    setState(() => _swiped = null);
+    await deleteKitFlow(context, _controller, state, kit);
+  }
+
+  Future<void> _open(Pharmacy kit) async {
+    if (_swiped != null) {
+      setState(() => _swiped = null);
+      return;
+    }
+    await _controller.selectPharmacy(kit.id);
+    if (mounted) context.go(AppRoutes.inventory);
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final appState = ref.watch(appControllerProvider);
+  Widget build(BuildContext context) {
+    final palette = context.palette;
     return Scaffold(
+      backgroundColor: palette.background,
       body: SafeArea(
+        bottom: false,
         child: AsyncValueView(
-          value: appState,
-          data: (state) => Align(
-            alignment: Alignment.topCenter,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 820),
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
+          value: ref.watch(appControllerProvider),
+          data: (state) => state.pharmacies.isEmpty
+              ? _EmptyKits(onCreate: () => _create(state))
+              : _list(state),
+        ),
+      ),
+    );
+  }
+
+  Widget _list(AppState state) {
+    final palette = context.palette;
+    final now = DateTime.now();
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: AppSpacing.maxContentWidth),
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 20, 16, 132),
+          children: [
+            SizedBox(
+              height: AppSpacing.navBar,
+              child: Row(
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Мои аптечки',
-                          style: Theme.of(context).textTheme.headlineMedium
-                              ?.copyWith(
-                                fontSize: 32,
-                                height: 44 / 32,
-                                letterSpacing: 0,
-                                fontWeight: FontWeight.w800,
-                                color:
-                                    Theme.of(context).brightness ==
-                                        Brightness.light
-                                    ? const Color(0xFF1A1A1A)
-                                    : AppColors.darkInk,
-                              ),
+                  Expanded(
+                    child: Semantics(
+                      header: true,
+                      child: Text(
+                        'Мои аптечки',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.h1.copyWith(
+                          color: palette.textHeading,
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      IconButton.filled(
-                        onPressed: () => _createPharmacy(context, ref),
-                        tooltip: 'Создать аптечку',
-                        style: IconButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          foregroundColor: Colors.white,
-                          fixedSize: const Size(44, 44),
-                          minimumSize: const Size(44, 44),
-                          padding: const EdgeInsets.all(10),
-                          side: BorderSide(
-                            color: Colors.white.withValues(alpha: 0.2),
-                          ),
-                        ),
-                        icon: const DesignIcon('add'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 36),
-                  ...state.pharmacies.map(
-                    (pharmacy) => Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: _PharmacyCard(
-                        pharmacy: pharmacy,
-                        state: state,
-                        onTap: () async {
-                          await ref
-                              .read(appControllerProvider.notifier)
-                              .selectPharmacy(pharmacy.id);
-                          if (context.mounted) context.go('/inventory');
-                        },
                       ),
                     ),
                   ),
+                  const SizedBox(width: 12),
+                  _AddButton(onPressed: () => _create(state)),
                 ],
               ),
+            ),
+            const SizedBox(height: 36),
+            for (final (index, kit) in state.pharmacies.indexed) ...[
+              if (index > 0) const SizedBox(height: AppSpacing.cardGap),
+              SwipeReveal(
+                key: ValueKey(kit.id),
+                enabled: kit.isOwn,
+                open: _swiped == kit.id,
+                onOpenChanged: (open) =>
+                    setState(() => _swiped = open ? kit.id : null),
+                actions: [
+                  SwipeActionButton(
+                    icon: 'swipe-edit',
+                    label: 'Изменить',
+                    onTap: () => _edit(state, kit),
+                  ),
+                  SwipeActionButton(
+                    icon: 'swipe-delete',
+                    label: 'Удалить',
+                    destructive: true,
+                    onTap: () => _delete(state, kit),
+                  ),
+                ],
+                child: KitCard(
+                  kit: kit,
+                  summary: state.summaryOf(kit.id, now),
+                  now: now,
+                  onTap: () => _open(kit),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Primary 44 pt glass button with the Figma «+» (671:1383).
+class _AddButton extends StatelessWidget {
+  const _AddButton({required this.onPressed});
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return Semantics(
+      button: true,
+      label: 'Создать аптечку',
+      excludeSemantics: true,
+      child: Tooltip(
+        message: 'Создать аптечку',
+        child: Material(
+          color: palette.brandPrimary,
+          shape: const CircleBorder(),
+          shadowColor: const Color(0x05000000),
+          elevation: 2,
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onPressed,
+            child: const SizedBox(
+              width: 44,
+              height: 44,
+              child: Center(child: DesignIcon('add-24', size: 24)),
             ),
           ),
         ),
@@ -122,163 +175,22 @@ class PharmaciesScreen extends ConsumerWidget {
   }
 }
 
-class _PharmacyCard extends StatelessWidget {
-  const _PharmacyCard({
-    required this.pharmacy,
-    required this.state,
-    required this.onTap,
-  });
-
-  final Pharmacy pharmacy;
-  final AppState state;
-  final VoidCallback onTap;
+/// «Аптечки / Пусто» (671:1432): shown only after every kit was deleted.
+class _EmptyKits extends StatelessWidget {
+  const _EmptyKits({required this.onCreate});
+  final VoidCallback onCreate;
 
   @override
-  Widget build(BuildContext context) {
-    final packages = state.medicinesIn(pharmacy.id);
-    final theme = Theme.of(context);
-    int count(MedicineStatus status) => packages
-        .where(
-          (item) =>
-              item.statusAt(
-                DateTime.now(),
-                warningDays: state.settings.expiryWarningDays,
-              ) ==
-              status,
-        )
-        .length;
-    final expired = count(MedicineStatus.expired);
-    final expiring = count(MedicineStatus.expiringSoon);
-    final unknown = count(MedicineStatus.unknown);
-    final captionStyle = theme.textTheme.bodySmall?.copyWith(
-      fontSize: 12,
-      height: 16 / 12,
-      fontWeight: FontWeight.w400,
-      letterSpacing: 0,
-    );
-    final valueStyle = theme.textTheme.titleSmall?.copyWith(
-      fontSize: 16,
-      height: 22 / 16,
-      fontWeight: FontWeight.w700,
-      letterSpacing: 0,
-    );
-    final statuses = <(String, String)>[
-      if (expired > 0)
-        (
-          'status-expired',
-          '$expired ${expired == 1 ? 'просрочена' : 'просрочены'}',
-        ),
-      if (expiring > 0)
-        (
-          'status-warning',
-          expired > 0
-              ? '+$expiring'
-              : '$expiring скоро ${expiring == 1 ? 'истечёт' : 'истекут'}',
-        ),
-      if (expired == 0 && expiring == 0)
-        unknown > 0
-            ? ('status-warning', 'Проверьте сроки')
-            : (
-                'status-okay',
-                packages.isEmpty ? 'Нет препаратов' : 'Все в норме',
-              ),
-    ];
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 132),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    DesignIcon(
-                      pharmacy.isShared ? 'forest' : 'home',
-                      size: 28,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        pharmacy.name,
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontSize: 24,
-                          height: 1.2,
-                          letterSpacing: 0,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: Center(
-                        child: DesignIcon(
-                          'chevron',
-                          width: 7,
-                          height: 12,
-                          color: theme.colorScheme.onSurface,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1, thickness: 1),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 13, 16, 16),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Сроки годности', style: captionStyle),
-                          const SizedBox(height: 3),
-                          Wrap(
-                            spacing: 16,
-                            runSpacing: 4,
-                            children: [
-                              for (final (icon, text) in statuses)
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment: CrossAxisAlignment.center,
-                                  children: [
-                                    DesignIcon(icon, size: 18),
-                                    const SizedBox(width: 6),
-                                    Flexible(
-                                      child: Text(text, style: valueStyle),
-                                    ),
-                                  ],
-                                ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text('Элементов', style: captionStyle),
-                        const SizedBox(height: 3),
-                        Text('${packages.length}', style: valueStyle),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
+  Widget build(BuildContext context) => Center(
+    child: SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 80, 16, 120),
+      child: EmptyStateCard(
+        image: 'assets/illustrations/onboarding/empty-kits.png',
+        title: 'Создайте первую аптечку',
+        text: 'Начните с одной аптечки. Остальные можно создать позже.',
+        buttonLabel: 'Создать аптечку',
+        onPressed: onCreate,
       ),
-    );
-  }
+    ),
+  );
 }

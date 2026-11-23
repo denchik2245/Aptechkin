@@ -1,0 +1,220 @@
+{
+  "sectionId": "1084:21844",
+  "screens": [
+    {
+      "id": "1084:21845",
+      "variant": "A",
+      "name": "Лечение / Курсы / A — Подробные карточки",
+      "w": 390,
+      "h": 844,
+      "contentHeight": 640,
+      "viewport": "1084:21951",
+      "viewportHeight": 615,
+      "scrolls": true,
+      "cards": [
+        {
+          "id": "1084:21972",
+          "name": "Курс / Простуда / Я",
+          "w": 358,
+          "h": 198
+        },
+        {
+          "id": "1084:21987",
+          "name": "Курс / Витамин D / Я",
+          "w": 358,
+          "h": 109
+        },
+        {
+          "id": "1084:22002",
+          "name": "Курс / Давление / Мама",
+          "w": 358,
+          "h": 139
+        }
+      ]
+    },
+    {
+      "id": "1084:22021",
+      "variant": "B",
+      "name": "Лечение / Курсы / B — Компактный список",
+      "w": 390,
+      "h": 844,
+      "contentHeight": 581,
+      "viewport": "1084:22127",
+      "viewportHeight": 615,
+      "scrolls": false,
+      "cards": [
+        {
+          "id": "1084:22148",
+          "name": "Курс / Простуда / Я",
+          "w": 358,
+          "h": 139
+        },
+        {
+          "id": "1084:22163",
+          "name": "Курс / Витамин D / Я",
+          "w": 358,
+          "h": 109
+        },
+        {
+          "id": "1084:22178",
+          "name": "Курс / Давление / Мама",
+          "w": 358,
+          "h": 139
+        }
+      ]
+    },
+    {
+      "id": "1084:22197",
+      "variant": "C",
+      "name": "Лечение / Курсы / C — По людям",
+      "w": 390,
+      "h": 844,
+      "contentHeight": 623,
+      "viewport": "1084:22303",
+      "viewportHeight": 615,
+      "scrolls": true,
+      "cards": [
+        {
+          "id": "1084:22324",
+          "name": "Курс / Простуда / Я",
+          "w": 358,
+          "h": 139
+        },
+        {
+          "id": "1084:22339",
+          "name": "Курс / Витамин D / Я",
+          "w": 358,
+          "h": 109
+        },
+        {
+          "id": "1084:22357",
+          "name": "Курс / Давление / Мама",
+          "w": 358,
+          "h": 139
+        }
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "variant": "A",
+      "id": "1084:21845",
+      "viewportHeight": 615,
+      "contentHeight": 659,
+      "scrollDirection": "VERTICAL",
+      "cards": [
+        {
+          "id": "1084:21972",
+          "name": "Курс / Простуда / Я",
+          "h": 198,
+          "progressBar": true
+        },
+        {
+          "id": "1084:21987",
+          "name": "Курс / Витамин D / Я",
+          "h": 128,
+          "progressBar": false
+        },
+        {
+          "id": "1084:22002",
+          "name": "Курс / Давление / Мама",
+          "h": 139,
+          "progressBar": false
+        }
+      ],
+      "headingGaps": [
+        {
+          "name": "Активные курсы",
+          "bottomGap": 8
+        }
+      ],
+      "fonts": [
+        "SF Pro",
+        "Manrope"
+      ]
+    },
+    {
+      "variant": "B",
+      "id": "1084:22021",
+      "viewportHeight": 615,
+      "contentHeight": 581,
+      "scrollDirection": "VERTICAL",
+      "cards": [
+        {
+          "id": "1084:22148",
+          "name": "Курс / Простуда / Я",
+          "h": 139,
+          "progressBar": false
+        },
+        {
+          "id": "1084:22163",
+          "name": "Курс / Витамин D / Я",
+          "h": 109,
+          "progressBar": false
+        },
+        {
+          "id": "1084:22178",
+          "name": "Курс / Давление / Мама",
+          "h": 139,
+          "progressBar": false
+        }
+      ],
+      "headingGaps": [
+        {
+          "name": "Активные курсы",
+          "bottomGap": 8
+        }
+      ],
+      "fonts": [
+        "SF Pro",
+        "Manrope"
+      ]
+    },
+    {
+      "variant": "C",
+      "id": "1084:22197",
+      "viewportHeight": 615,
+      "contentHeight": 623,
+      "scrollDirection": "VERTICAL",
+      "cards": [
+        {
+          "id": "1084:22324",
+          "name": "Курс / Простуда / Я",
+          "h": 139,
+          "progressBar": false
+        },
+        {
+          "id": "1084:22339",
+          "name": "Курс / Витамин D / Я",
+          "h": 109,
+          "progressBar": false
+        },
+        {
+          "id": "1084:22357",
+          "name": "Курс / Давление / Мама",
+          "h": 139,
+          "progressBar": false
+        }
+      ],
+      "headingGaps": [
+        {
+          "name": "Активные / Я",
+          "bottomGap": 8
+        },
+        {
+          "name": "Активные / Мама",
+          "bottomGap": 8
+        }
+      ],
+      "fonts": [
+        "SF Pro",
+        "Manrope"
+      ]
+    }
+  ],
+  "scope": "Один основной экран вкладки «Курсы», три варианта. Без экранов курса, создания, архива и модальных окон.",
+  "foundationId": "1068:21773",
+  "archiveId": "723:3928",
+  "status": "Три предложения основного списка. Пользователь ещё не выбрал вариант.",
+  "recommended": "B"
+}
