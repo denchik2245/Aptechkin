@@ -56,3 +56,7 @@ app.*.map.json
 server/.env
 server/.data/
 **/__pycache__/
+
+# Local scratch output (screenshots from tests, previews)
+/tmp/
+/outputs/

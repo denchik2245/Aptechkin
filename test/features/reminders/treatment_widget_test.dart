@@ -58,8 +58,9 @@ void main() {
       );
       final image = await boundary.toImage(pixelRatio: 1);
       final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-      await File('tmp/treatment-$name.png')
-          .writeAsBytes(bytes!.buffer.asUint8List());
+      final file = File('tmp/treatment-$name.png');
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(bytes!.buffer.asUint8List());
       image.dispose();
     });
   }
