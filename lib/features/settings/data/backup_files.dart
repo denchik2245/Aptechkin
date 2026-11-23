@@ -37,7 +37,7 @@ class PlatformBackupFiles implements BackupFiles {
           ),
         ],
         fileNameOverrides: [fileName],
-        title: 'Резервная копия «Аптечки»',
+        title: 'Резервная копия «Аптечкина»',
       ),
     );
     return result.status != ShareResultStatus.dismissed;

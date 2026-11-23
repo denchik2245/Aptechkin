@@ -401,7 +401,7 @@ class _RestoreScreenState extends ConsumerState<RestoreScreen> {
     ),
     SettingsSection(
       footnote:
-          'Подходят файлы .json, созданные в «Аптечке». Если копию сделали в '
+          'Подходят файлы .json, созданные в «Аптечкине». Если копию сделали в '
           'новой версии — обновите приложение.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

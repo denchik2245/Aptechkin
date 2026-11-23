@@ -268,7 +268,7 @@ class _NotificationCard extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Аптечка',
+                    'Аптечкин',
                     style: TextStyle(color: Color(0xFF66647C), fontSize: 12),
                   ),
                   Text(

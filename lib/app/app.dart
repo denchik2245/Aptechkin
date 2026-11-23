@@ -15,7 +15,7 @@ class AptechkaApp extends ConsumerWidget {
         ref.watch(appControllerProvider).asData?.value.settings ??
         const AppSettings();
     return MaterialApp.router(
-      title: 'Аптечка',
+      title: 'Аптечкин',
       locale: const Locale('ru'),
       supportedLocales: const [Locale('ru')],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,

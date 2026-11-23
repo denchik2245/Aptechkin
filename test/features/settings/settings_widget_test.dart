@@ -137,7 +137,7 @@ void main() {
     expect(find.text('Копия сохранена'), findsOneWidget);
     expect(
       files.saved.keys.single,
-      matches(RegExp(r'^aptechka-\d{4}-\d{2}-\d{2}\.json$')),
+      matches(RegExp(r'^aptechkin-\d{4}-\d{2}-\d{2}\.json$')),
     );
     final state = container.read(appControllerProvider).requireValue;
     expect(

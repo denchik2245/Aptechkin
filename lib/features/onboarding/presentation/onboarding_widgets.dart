@@ -225,7 +225,7 @@ class PushPreview extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('Аптечка', style: meta),
+                    Text('Аптечкин', style: meta),
                     Text('сейчас', style: meta),
                   ],
                 ),

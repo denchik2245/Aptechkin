@@ -174,7 +174,7 @@ void main() {
     expect(BackupSummary.of(state([])).historyLabel(now), 'нет');
     expect(
       BackupCodec.fileName(DateTime(2026, 11, 6, 10, 30)),
-      'aptechka-2026-11-06.json',
+      'aptechkin-2026-11-06.json',
     );
     expect(savedAtLabel(DateTime(2026, 11, 6, 10, 30)), '6 ноября, 10:30');
     expect(lastBackupLabel(null, now), 'Нет');

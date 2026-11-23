@@ -23,7 +23,7 @@ class AboutScreen extends StatelessWidget {
               const _AppIcon(),
               const SizedBox(height: 8),
               Text(
-                'Аптечка',
+                'Аптечкин',
                 style: AppTypography.h2.copyWith(color: palette.textPrimary),
               ),
               const SizedBox(height: 8),
@@ -58,7 +58,7 @@ class AboutScreen extends StatelessWidget {
               title: 'Лицензии',
               onTap: () => showLicensePage(
                 context: context,
-                applicationName: 'Аптечка',
+                applicationName: 'Аптечкин',
                 applicationVersion: AppInfo.version,
               ),
             ),

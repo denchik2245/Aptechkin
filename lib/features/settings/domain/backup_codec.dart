@@ -21,10 +21,10 @@ abstract final class BackupCodec {
         'data': state.toJson(),
       });
 
-  /// «aptechka-2026-11-06.json» (1159:24653).
+  /// «aptechkin-2026-11-06.json» (1159:24653).
   static String fileName(DateTime createdAt) {
     String two(int value) => value.toString().padLeft(2, '0');
-    return 'aptechka-${createdAt.year}-${two(createdAt.month)}-'
+    return 'aptechkin-${createdAt.year}-${two(createdAt.month)}-'
         '${two(createdAt.day)}.json';
   }
 
@@ -44,7 +44,7 @@ abstract final class BackupCodec {
       final envelope = jsonDecode(source) as Map;
       if (envelope['app'] != 'aptechka' || envelope['version'] != 1) {
         throw const FormatException(
-          'Нужна резервная копия «Аптечки» версии 1.',
+          'Нужна резервная копия «Аптечкина» версии 1.',
         );
       }
       final data = Map<String, Object?>.from(envelope['data'] as Map);
@@ -137,7 +137,7 @@ abstract final class BackupCodec {
       }
       return state;
     } on FormatException catch (error) {
-      if (error.message == 'Нужна резервная копия «Аптечки» версии 1.') rethrow;
+      if (error.message == 'Нужна резервная копия «Аптечкина» версии 1.') rethrow;
       throw const FormatException(
         'Копия повреждена или содержит некорректные записи.',
       );
